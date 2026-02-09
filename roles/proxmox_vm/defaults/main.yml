@@ -44,3 +44,6 @@ cloudinit_ssh_public_keys: ""
 proxmox_clone_timeout: 600
 proxmox_operation_retries: 30
 proxmox_operation_delay: 2
+wait_for_cloudinit: true
+cloudinit_wait_retries: 60
+cloudinit_wait_delay: 5

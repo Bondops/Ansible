@@ -15,6 +15,7 @@ Creates a VM in Proxmox from a Debian 13 template with these runtime fields:
 - `vm_id` (default `auto`, can be overridden)
 - `ip_mode` (`dhcp`, `static`, `phpipam`)
 - `root_password` (optional; if set, cloud-init login user is set to `root`)
+- `wait_for_cloudinit` (default `true`; waits for first-boot cloud-init to finish)
 
 Static mode fields:
 - `static_ip_cidr`

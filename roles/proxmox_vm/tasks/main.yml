@@ -403,6 +403,62 @@
   when: (proxmox_vm_status_response.json.data.status | default('stopped')) != 'running'
   failed_when: proxmox_start_response.status | int != 200
 
+- name: Wait for QEMU guest agent to become ready
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/agent/ping"
+    method: POST
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: [200, 500]
+  register: proxmox_agent_ping_response
+  until: proxmox_agent_ping_response.status | int == 200
+  retries: "{{ cloudinit_wait_retries }}"
+  delay: "{{ cloudinit_wait_delay }}"
+  when: wait_for_cloudinit | bool
+  failed_when: proxmox_agent_ping_response.status | int != 200
+
+- name: Start cloud-init wait command inside guest
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/agent/exec"
+    method: POST
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    body_format: form-urlencoded
+    body:
+      command:
+        - cloud-init
+        - status
+        - --wait
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: 200
+  register: proxmox_cloudinit_exec_response
+  when: wait_for_cloudinit | bool
+
+- name: Poll cloud-init wait command result
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/agent/exec-status?pid={{ proxmox_cloudinit_exec_response.json.data.pid }}"
+    method: GET
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: [200, 500]
+  register: proxmox_cloudinit_exec_status_response
+  until:
+    - proxmox_cloudinit_exec_status_response.status | int == 200
+    - (proxmox_cloudinit_exec_status_response.json.data.exited | default(false))
+    - (proxmox_cloudinit_exec_status_response.json.data.exitcode | default(1) | int) == 0
+  retries: "{{ cloudinit_wait_retries }}"
+  delay: "{{ cloudinit_wait_delay }}"
+  when: wait_for_cloudinit | bool
+  failed_when: >
+    proxmox_cloudinit_exec_status_response.status | int != 200 or
+    not (proxmox_cloudinit_exec_status_response.json.data.exited | default(false)) or
+    (proxmox_cloudinit_exec_status_response.json.data.exitcode | default(1) | int) != 0
+
 - name: Output summary
   ansible.builtin.debug:
     msg:
@@ -410,3 +466,4 @@
       - "Disk: {{ disk_size_gb }}G, CPU: {{ cpu_sockets }} sockets x {{ cpu_cores }} cores, RAM: {{ memory_mb }} MB"
       - "Network: bridge={{ network_bridge }}, vlan={{ vlan_tag }}, mode={{ vm_ip_mode }}"
       - "Cloud-init login user: {{ vm_effective_ciuser }}"
+      - "Cloud-init initialization: {{ 'waited until done' if wait_for_cloudinit | bool else 'wait disabled' }}"
