@@ -168,15 +168,16 @@
   register: proxmox_nextid_response
   when: resolved_vm_id == 'auto'
 
-- name: Finalize VM ID from Proxmox nextid
+- name: Finalize VM ID
   ansible.builtin.set_fact:
-    vm_vmid: "{{ proxmox_nextid_response.json.data | int }}"
-  when: resolved_vm_id == 'auto'
-
-- name: Finalize VM ID from provided value
-  ansible.builtin.set_fact:
-    vm_vmid: "{{ resolved_vm_id | int }}"
-  when: resolved_vm_id != 'auto'
+    vm_vmid: >-
+      {{
+        (
+          ((proxmox_nextid_response | default({})).get('json', {})).get('data', resolved_vm_id)
+          if resolved_vm_id == 'auto'
+          else resolved_vm_id
+        ) | int
+      }}
 
 - name: Build cloud-init IP config
   ansible.builtin.set_fact:
