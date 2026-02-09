@@ -3,4 +3,4 @@
   hosts: localhost
   gather_facts: false
   roles:
-    - role: proxmox_vm
+    - role: ../roles/proxmox_vm

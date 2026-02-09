@@ -53,6 +53,7 @@ STORAGE=vm_storage
 IMAGE=/var/lib/vz/template/iso/debian-13-genericcloud-amd64.qcow2
 
 # Download official Debian 13 cloud image first and place at $IMAGE.
+wget -O "$IMAGE" https://cloud.debian.org/images/cloud/trixie/latest/debian-13-genericcloud-amd64.qcow2
 
 qm create $TEMPLATE_ID --name $TEMPLATE_NAME --memory 2048 --cores 2 --sockets 1 --net0 virtio,bridge=vmbr1
 qm set $TEMPLATE_ID --scsihw virtio-scsi-pci --scsi0 ${STORAGE}:0,import-from=${IMAGE}
@@ -61,6 +62,22 @@ qm set $TEMPLATE_ID --boot order=scsi0
 qm set $TEMPLATE_ID --serial0 socket --vga serial0
 qm set $TEMPLATE_ID --agent enabled=1
 qm template $TEMPLATE_ID
+```
+
+Notes:
+- `scsi0` is the OS disk. `ide2` is the cloud-init metadata drive (not the system disk).
+- `STORAGE` must support VM disks/images (`images` content). Do not use ISO-only storage for this.
+
+If you prefer maximum robustness, use one-line `qm create` (avoid line-continuation issues):
+
+```bash
+qm create "$TEMPLATE_ID" --name "$TEMPLATE_NAME" --memory 2048 --cores 2 --sockets 1 --net0 "virtio,bridge=vmbr1"
+```
+
+If script execution fails with `--name: command not found`, run:
+
+```bash
+sed -i 's/\r$//' your-script.sh
 ```
 
 ## Semaphore setup
