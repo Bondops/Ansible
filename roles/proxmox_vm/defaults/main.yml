@@ -9,6 +9,7 @@ memory_mb: 2048
 network_bridge: "vmbr1"
 vlan_tag: 10
 ip_mode: "dhcp" # dhcp | static | phpipam
+root_password: "" # Optional. If set, cloud-init user becomes root and this password is applied.
 
 # Used when ip_mode == static
 static_ip_cidr: ""    # Example: 10.10.10.50/24

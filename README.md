@@ -14,6 +14,7 @@ Creates a VM in Proxmox from a Debian 13 template with these runtime fields:
 - `vlan_tag` (default `10`)
 - `vm_id` (default `auto`, can be overridden)
 - `ip_mode` (`dhcp`, `static`, `phpipam`)
+- `root_password` (optional; if set, cloud-init login user is set to `root`)
 
 Static mode fields:
 - `static_ip_cidr`
@@ -108,6 +109,7 @@ sed -i 's/\r$//' your-script.sh
   - `ansible-galaxy collection install -r requirements.yml`
 - Extra Variables default template:
   - use `semaphore/create-vm-vars.example.yml`
+  - for `root_password`, use a Survey variable of type `Secret` (or pass in Secrets)
 
 ## Runtime behavior for `ip_mode`
 

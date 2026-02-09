@@ -192,6 +192,11 @@
   ansible.builtin.set_fact:
     vm_ipconfig0: "{{ 'ip=dhcp' if vm_ip_mode == 'dhcp' else 'ip=' + static_ip_cidr + ',gw=' + static_gateway }}"
 
+- name: Build cloud-init login config
+  ansible.builtin.set_fact:
+    vm_effective_ciuser: "{{ 'root' if root_password | length > 0 else cloudinit_ciuser }}"
+    vm_optional_password_payload: "{{ {'cipassword': root_password} if root_password | length > 0 else {} }}"
+
 - name: Check if target VM already exists
   ansible.builtin.uri:
     url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/config"
@@ -256,7 +261,7 @@
       agent: "{{ 1 if vm_qemu_agent else 0 }}"
       numa: "{{ 1 if vm_numa else 0 }}"
       hotplug: "{{ vm_hotplug }}"
-      ciuser: "{{ cloudinit_ciuser }}"
+      ciuser: "{{ vm_effective_ciuser }}"
       ipconfig0: "{{ vm_ipconfig0 }}"
       net0: "virtio,bridge={{ network_bridge }},tag={{ vlan_tag }},firewall={{ 1 if vm_firewall else 0 }},mtu={{ vm_mtu }}"
 
@@ -267,7 +272,7 @@
     headers:
       Authorization: "{{ proxmox_auth_header }}"
     body_format: form-urlencoded
-    body: "{{ vm_config_payload_common | combine(vm_optional_sshkeys_payload) }}"
+    body: "{{ vm_config_payload_common | combine(vm_optional_sshkeys_payload) | combine(vm_optional_password_payload) }}"
     validate_certs: "{{ proxmox_validate_certs }}"
     return_content: true
     status_code: [200, 500]
@@ -285,7 +290,7 @@
     headers:
       Authorization: "{{ proxmox_auth_header }}"
     body_format: form-urlencoded
-    body: "{{ vm_config_payload_common | combine({'nameserver': static_dns1 + ' ' + static_dns2}) | combine(vm_optional_sshkeys_payload) }}"
+    body: "{{ vm_config_payload_common | combine({'nameserver': static_dns1 + ' ' + static_dns2}) | combine(vm_optional_sshkeys_payload) | combine(vm_optional_password_payload) }}"
     validate_certs: "{{ proxmox_validate_certs }}"
     return_content: true
     status_code: [200, 500]
@@ -404,3 +409,4 @@
       - "VM created: {{ vm_name }} (vmid={{ vm_vmid }})"
       - "Disk: {{ disk_size_gb }}G, CPU: {{ cpu_sockets }} sockets x {{ cpu_cores }} cores, RAM: {{ memory_mb }} MB"
       - "Network: bridge={{ network_bridge }}, vlan={{ vlan_tag }}, mode={{ vm_ip_mode }}"
+      - "Cloud-init login user: {{ vm_effective_ciuser }}"
