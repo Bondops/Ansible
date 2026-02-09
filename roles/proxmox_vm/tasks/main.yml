@@ -192,75 +192,98 @@
   ansible.builtin.set_fact:
     vm_ipconfig0: "{{ 'ip=dhcp' if vm_ip_mode == 'dhcp' else 'ip=' + static_ip_cidr + ',gw=' + static_gateway }}"
 
-- name: Clone Debian 13 template
-  community.proxmox.proxmox_kvm:
-    api_host: "{{ proxmox_api_host }}"
-    api_user: "{{ proxmox_api_user }}"
-    api_token_id: "{{ proxmox_api_token_id }}"
-    api_token_secret: "{{ proxmox_api_token_secret }}"
+- name: Check if target VM already exists
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/config"
+    method: GET
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
     validate_certs: "{{ proxmox_validate_certs }}"
-    node: "{{ proxmox_node }}"
-    clone: "{{ proxmox_template_vmid }}"
-    vmid: "{{ vm_vmid }}"
-    name: "{{ vm_name }}"
-    full: true
-    storage: "{{ vm_storage }}"
-    timeout: "{{ proxmox_clone_timeout }}"
-    state: present
+    return_content: true
+    status_code: [200, 404, 500]
+  register: proxmox_existing_vm_config_response
+  failed_when: false
 
-- name: Configure VM hardware and cloud-init networking
-  community.proxmox.proxmox_kvm:
-    api_host: "{{ proxmox_api_host }}"
-    api_user: "{{ proxmox_api_user }}"
-    api_token_id: "{{ proxmox_api_token_id }}"
-    api_token_secret: "{{ proxmox_api_token_secret }}"
+- name: Set VM existence flag
+  ansible.builtin.set_fact:
+    vm_already_exists: "{{ proxmox_existing_vm_config_response.status | int == 200 }}"
+
+- name: Clone Debian 13 template via Proxmox API
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ proxmox_template_vmid }}/clone"
+    method: POST
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    body_format: form-urlencoded
+    body:
+      newid: "{{ vm_vmid }}"
+      name: "{{ vm_name }}"
+      full: 1
+      storage: "{{ vm_storage }}"
+      target: "{{ proxmox_node }}"
     validate_certs: "{{ proxmox_validate_certs }}"
-    node: "{{ proxmox_node }}"
-    vmid: "{{ vm_vmid }}"
-    update: true
-    cpu: "{{ vm_cpu_type }}"
-    sockets: "{{ cpu_sockets | int }}"
-    cores: "{{ cpu_cores | int }}"
-    memory: "{{ memory_mb | int }}"
-    onboot: "{{ vm_onboot | bool }}"
-    agent: "{{ vm_qemu_agent | bool }}"
-    numa_enabled: "{{ vm_numa | bool }}"
-    hotplug: "{{ vm_hotplug }}"
-    ciuser: "{{ cloudinit_ciuser }}"
-    sshkeys: "{{ cloudinit_ssh_public_keys if cloudinit_ssh_public_keys | length > 0 else omit }}"
-    ipconfig:
+    return_content: true
+    status_code: 200
+  when: not vm_already_exists
+
+- name: Wait until VM config is available after clone
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/config"
+    method: GET
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: 200
+  register: proxmox_vm_ready_response
+  until: proxmox_vm_ready_response.status | int == 200
+  retries: "{{ proxmox_operation_retries }}"
+  delay: "{{ proxmox_operation_delay }}"
+  when: not vm_already_exists
+
+- name: Build optional SSH key payload
+  ansible.builtin.set_fact:
+    vm_optional_sshkeys_payload: "{{ {'sshkeys': cloudinit_ssh_public_keys} if cloudinit_ssh_public_keys | length > 0 else {} }}"
+
+- name: Build common VM config payload
+  ansible.builtin.set_fact:
+    vm_config_payload_common:
+      cpu: "{{ vm_cpu_type }}"
+      sockets: "{{ cpu_sockets | int }}"
+      cores: "{{ cpu_cores | int }}"
+      memory: "{{ memory_mb | int }}"
+      onboot: "{{ 1 if vm_onboot else 0 }}"
+      agent: "{{ 1 if vm_qemu_agent else 0 }}"
+      numa: "{{ 1 if vm_numa else 0 }}"
+      hotplug: "{{ vm_hotplug }}"
+      ciuser: "{{ cloudinit_ciuser }}"
       ipconfig0: "{{ vm_ipconfig0 }}"
-    net:
       net0: "virtio,bridge={{ network_bridge }},tag={{ vlan_tag }},firewall={{ 1 if vm_firewall else 0 }},mtu={{ vm_mtu }}"
-    state: present
+
+- name: Configure VM hardware and cloud-init networking (dhcp)
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/config"
+    method: PUT
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    body_format: form-urlencoded
+    body: "{{ vm_config_payload_common | combine(vm_optional_sshkeys_payload) }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: 200
   when: vm_ip_mode == 'dhcp'
 
 - name: Configure VM hardware and cloud-init networking (static)
-  community.proxmox.proxmox_kvm:
-    api_host: "{{ proxmox_api_host }}"
-    api_user: "{{ proxmox_api_user }}"
-    api_token_id: "{{ proxmox_api_token_id }}"
-    api_token_secret: "{{ proxmox_api_token_secret }}"
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/config"
+    method: PUT
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    body_format: form-urlencoded
+    body: "{{ vm_config_payload_common | combine({'nameserver': static_dns1 + ' ' + static_dns2}) | combine(vm_optional_sshkeys_payload) }}"
     validate_certs: "{{ proxmox_validate_certs }}"
-    node: "{{ proxmox_node }}"
-    vmid: "{{ vm_vmid }}"
-    update: true
-    cpu: "{{ vm_cpu_type }}"
-    sockets: "{{ cpu_sockets | int }}"
-    cores: "{{ cpu_cores | int }}"
-    memory: "{{ memory_mb | int }}"
-    onboot: "{{ vm_onboot | bool }}"
-    agent: "{{ vm_qemu_agent | bool }}"
-    numa_enabled: "{{ vm_numa | bool }}"
-    hotplug: "{{ vm_hotplug }}"
-    ciuser: "{{ cloudinit_ciuser }}"
-    sshkeys: "{{ cloudinit_ssh_public_keys if cloudinit_ssh_public_keys | length > 0 else omit }}"
-    ipconfig:
-      ipconfig0: "{{ vm_ipconfig0 }}"
-    nameservers: "{{ static_dns1 }} {{ static_dns2 }}"
-    net:
-      net0: "virtio,bridge={{ network_bridge }},tag={{ vlan_tag }},firewall={{ 1 if vm_firewall else 0 }},mtu={{ vm_mtu }}"
-    state: present
+    return_content: true
+    status_code: 200
   when: vm_ip_mode == 'static'
 
 - name: Read current VM config
@@ -328,16 +351,27 @@
     return_content: true
     status_code: 200
 
-- name: Ensure VM is started
-  community.proxmox.proxmox_kvm:
-    api_host: "{{ proxmox_api_host }}"
-    api_user: "{{ proxmox_api_user }}"
-    api_token_id: "{{ proxmox_api_token_id }}"
-    api_token_secret: "{{ proxmox_api_token_secret }}"
+- name: Read current VM runtime status
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/status/current"
+    method: GET
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
     validate_certs: "{{ proxmox_validate_certs }}"
-    node: "{{ proxmox_node }}"
-    vmid: "{{ vm_vmid }}"
-    state: started
+    return_content: true
+    status_code: 200
+  register: proxmox_vm_status_response
+
+- name: Ensure VM is started
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/status/start"
+    method: POST
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: 200
+  when: (proxmox_vm_status_response.json.data.status | default('stopped')) != 'running'
 
 - name: Output summary
   ansible.builtin.debug:
