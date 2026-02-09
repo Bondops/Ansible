@@ -1,0 +1,23 @@
+# Semaphore runtime variables (YAML)
+# Paste in Task Template -> Extra Variables (or run-time override)
+vm_name: "vm-demo-01"
+vm_id: "auto"               # auto = next free vmid, or set explicit numeric ID
+
+# Requested fields
+# Defaults can be kept as-is
+disk_size_gb: 20
+cpu_sockets: 2
+cpu_cores: 2
+memory_mb: 2048
+network_bridge: "vmbr1"
+vlan_tag: 10
+ip_mode: "dhcp"             # dhcp | static | phpipam
+
+# Used only when ip_mode=static
+static_ip_cidr: "10.10.10.50/24"
+static_gateway: "10.10.10.1"
+static_dns1: "1.1.1.1"
+static_dns2: "8.8.8.8"
+
+# Used only when ip_mode=phpipam
+phpipam_vlan_id: "10"       # optional; defaults to vlan_tag

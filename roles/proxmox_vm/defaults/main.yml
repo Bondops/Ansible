@@ -1,0 +1,45 @@
+---
+# User fields exposed in Semaphore
+vm_name: ""
+vm_id: "auto"
+disk_size_gb: 20
+cpu_sockets: 2
+cpu_cores: 2
+memory_mb: 2048
+network_bridge: "vmbr1"
+vlan_tag: 10
+ip_mode: "dhcp" # dhcp | static | phpipam
+
+# Used when ip_mode == static
+static_ip_cidr: ""    # Example: 10.10.10.50/24
+static_gateway: ""    # Example: 10.10.10.1
+static_dns1: ""
+static_dns2: ""
+
+# Used when ip_mode == phpipam
+phpipam_url: ""
+phpipam_app_id: ""
+phpipam_username: ""
+phpipam_password: ""
+phpipam_verify_ssl: false
+phpipam_vlan_id: ""   # Defaults to vlan_tag when empty
+phpipam_section_id: "" # Optional filter
+phpipam_dns1: ""
+phpipam_dns2: ""
+
+# Fixed config (not exposed in Semaphore form)
+vm_storage: "vm_storage"
+vm_cpu_type: "host"
+vm_onboot: true
+vm_qemu_agent: true
+vm_numa: true
+vm_firewall: false
+vm_mtu: 1
+vm_hotplug: "disk,network,usb,memory,cpu"
+
+# Internal defaults
+cloudinit_ciuser: "debian"
+cloudinit_ssh_public_keys: ""
+proxmox_clone_timeout: 600
+proxmox_operation_retries: 30
+proxmox_operation_delay: 2

@@ -1,0 +1,15 @@
+---
+# Proxmox API settings (store secrets in Semaphore Environment variables)
+proxmox_api_host: "proxmox.example.local"
+proxmox_api_user: "ansible@pve"
+proxmox_api_token_id: "semaphore"
+proxmox_api_token_secret: "REPLACE_ME"
+proxmox_node: "pve"
+proxmox_validate_certs: false
+
+# Debian 13 template (must exist in Proxmox)
+proxmox_template_vmid: 9000
+
+# Optional cloud-init defaults
+cloudinit_ciuser: "debian"
+cloudinit_ssh_public_keys: ""

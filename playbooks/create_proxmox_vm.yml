@@ -1,0 +1,6 @@
+---
+- name: Create Proxmox VM from Debian 13 template
+  hosts: localhost
+  gather_facts: false
+  roles:
+    - role: proxmox_vm

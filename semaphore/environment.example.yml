@@ -1,0 +1,22 @@
+# Semaphore Environment variables (YAML)
+# Put this in a Semaphore Environment linked to the task.
+proxmox_api_host: "proxmox.example.local"
+proxmox_api_user: "ansible@pve"
+proxmox_api_token_id: "semaphore"
+proxmox_api_token_secret: "REPLACE_ME"
+proxmox_node: "pve"
+proxmox_template_vmid: 9000
+proxmox_validate_certs: false
+
+# Optional cloud-init defaults
+cloudinit_ciuser: "debian"
+cloudinit_ssh_public_keys: "ssh-ed25519 AAAA..."
+
+# Required only for ip_mode=phpipam
+phpipam_url: "https://phpipam.example.local"
+phpipam_app_id: "ansible"
+phpipam_username: "ansible-api"
+phpipam_password: "REPLACE_ME"
+phpipam_verify_ssl: false
+phpipam_dns1: "1.1.1.1"
+phpipam_dns2: "8.8.8.8"

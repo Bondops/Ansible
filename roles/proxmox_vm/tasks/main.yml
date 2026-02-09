@@ -1,0 +1,331 @@
+---
+- name: Validate required input
+  ansible.builtin.assert:
+    that:
+      - vm_name | length > 0
+      - proxmox_api_host | length > 0
+      - proxmox_api_user | length > 0
+      - proxmox_api_token_id | length > 0
+      - proxmox_api_token_secret | length > 0
+      - proxmox_node | length > 0
+      - proxmox_template_vmid | string | length > 0
+      - disk_size_gb | int > 0
+      - cpu_sockets | int > 0
+      - cpu_cores | int > 0
+      - memory_mb | int > 0
+      - network_bridge | length > 0
+
+- name: Normalize ip mode
+  ansible.builtin.set_fact:
+    vm_ip_mode: "{{ ip_mode | lower | trim }}"
+
+- name: Validate ip mode
+  ansible.builtin.assert:
+    that:
+      - vm_ip_mode in ['dhcp', 'static', 'phpipam']
+    fail_msg: "ip_mode must be one of: dhcp, static, phpipam"
+
+- name: Validate static networking input
+  ansible.builtin.assert:
+    that:
+      - static_ip_cidr | length > 0
+      - static_gateway | length > 0
+      - static_dns1 | length > 0
+      - static_dns2 | length > 0
+  when: vm_ip_mode == 'static'
+
+- name: Validate phpIPAM input
+  ansible.builtin.assert:
+    that:
+      - phpipam_url | length > 0
+      - phpipam_app_id | length > 0
+      - phpipam_username | length > 0
+      - phpipam_password | length > 0
+  when: vm_ip_mode == 'phpipam'
+
+- name: Resolve phpIPAM vlan id
+  ansible.builtin.set_fact:
+    resolved_phpipam_vlan_id: "{{ (phpipam_vlan_id | string | trim) if (phpipam_vlan_id | string | trim | length > 0) else (vlan_tag | string) }}"
+  when: vm_ip_mode == 'phpipam'
+
+- name: Authenticate against phpIPAM
+  ansible.builtin.uri:
+    url: "{{ phpipam_url.rstrip('/') }}/api/{{ phpipam_app_id }}/user/"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      username: "{{ phpipam_username }}"
+      password: "{{ phpipam_password }}"
+    validate_certs: "{{ phpipam_verify_ssl }}"
+    return_content: true
+    status_code: 200
+  register: phpipam_auth_response
+  when: vm_ip_mode == 'phpipam'
+
+- name: Fetch phpIPAM subnets
+  ansible.builtin.uri:
+    url: "{{ phpipam_url.rstrip('/') }}/api/{{ phpipam_app_id }}/subnets/"
+    method: GET
+    headers:
+      token: "{{ phpipam_auth_response.json.data.token }}"
+    validate_certs: "{{ phpipam_verify_ssl }}"
+    return_content: true
+    status_code: 200
+  register: phpipam_subnets_response
+  when: vm_ip_mode == 'phpipam'
+
+- name: Filter phpIPAM subnets by vlan and optional section
+  ansible.builtin.set_fact:
+    phpipam_candidate_subnets: >-
+      {% set out = [] %}
+      {% for subnet in (phpipam_subnets_response.json.data | default([])) %}
+      {% set vlan_match = (subnet.vlanId | string) == (resolved_phpipam_vlan_id | string) %}
+      {% set section_match = (phpipam_section_id | string | trim | length == 0) or ((subnet.sectionId | string) == (phpipam_section_id | string)) %}
+      {% if vlan_match and section_match %}
+      {% set _ = out.append(subnet) %}
+      {% endif %}
+      {% endfor %}
+      {{ out }}
+  when: vm_ip_mode == 'phpipam'
+
+- name: Validate phpIPAM subnet match
+  ansible.builtin.assert:
+    that:
+      - phpipam_candidate_subnets | length > 0
+    fail_msg: "No subnet found in phpIPAM for vlanId={{ resolved_phpipam_vlan_id }}"
+  when: vm_ip_mode == 'phpipam'
+
+- name: Pick first matching phpIPAM subnet
+  ansible.builtin.set_fact:
+    phpipam_selected_subnet: "{{ phpipam_candidate_subnets | first }}"
+  when: vm_ip_mode == 'phpipam'
+
+- name: Ask phpIPAM for first free IP
+  ansible.builtin.uri:
+    url: "{{ phpipam_url.rstrip('/') }}/api/{{ phpipam_app_id }}/addresses/first_free/{{ phpipam_selected_subnet.id }}/"
+    method: GET
+    headers:
+      token: "{{ phpipam_auth_response.json.data.token }}"
+    validate_certs: "{{ phpipam_verify_ssl }}"
+    return_content: true
+    status_code: 200
+  register: phpipam_first_free_response
+  when: vm_ip_mode == 'phpipam'
+
+- name: Reserve IP in phpIPAM
+  ansible.builtin.uri:
+    url: "{{ phpipam_url.rstrip('/') }}/api/{{ phpipam_app_id }}/addresses/"
+    method: POST
+    headers:
+      token: "{{ phpipam_auth_response.json.data.token }}"
+    body_format: form-urlencoded
+    body:
+      subnetId: "{{ phpipam_selected_subnet.id }}"
+      ip: "{{ phpipam_first_free_response.json.data }}"
+      hostname: "{{ vm_name }}"
+      description: "Created by Semaphore/Ansible"
+    validate_certs: "{{ phpipam_verify_ssl }}"
+    return_content: true
+    status_code: [200, 201]
+  when: vm_ip_mode == 'phpipam'
+
+- name: Build static network config from phpIPAM data
+  ansible.builtin.set_fact:
+    static_ip_cidr: "{{ phpipam_first_free_response.json.data }}/{{ phpipam_selected_subnet.mask }}"
+    static_gateway: "{{ phpipam_selected_subnet.gateway | default('') }}"
+    static_dns1: "{{ phpipam_dns1 }}"
+    static_dns2: "{{ phpipam_dns2 }}"
+    vm_ip_mode: "static"
+  when: vm_ip_mode == 'phpipam'
+
+- name: Validate phpIPAM derived network values
+  ansible.builtin.assert:
+    that:
+      - static_ip_cidr | length > 0
+      - static_gateway | length > 0
+      - static_dns1 | length > 0
+      - static_dns2 | length > 0
+    fail_msg: "phpIPAM mode requires gateway and dns values (set phpipam_dns1/phpipam_dns2 and ensure subnet has gateway)."
+  when: ip_mode | lower | trim == 'phpipam'
+
+- name: Build Proxmox API auth header
+  ansible.builtin.set_fact:
+    proxmox_auth_header: "PVEAPIToken={{ proxmox_api_user }}!{{ proxmox_api_token_id }}={{ proxmox_api_token_secret }}"
+
+- name: Resolve VM ID from user input
+  ansible.builtin.set_fact:
+    resolved_vm_id: "{{ vm_id | string | trim }}"
+
+- name: Ask Proxmox for next free VM ID
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/cluster/nextid"
+    method: GET
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: 200
+  register: proxmox_nextid_response
+  when: resolved_vm_id == 'auto'
+
+- name: Finalize VM ID
+  ansible.builtin.set_fact:
+    vm_vmid: "{{ (proxmox_nextid_response.json.data if resolved_vm_id == 'auto' else resolved_vm_id) | int }}"
+
+- name: Build cloud-init IP config
+  ansible.builtin.set_fact:
+    vm_ipconfig0: "{{ 'ip=dhcp' if vm_ip_mode == 'dhcp' else 'ip=' + static_ip_cidr + ',gw=' + static_gateway }}"
+
+- name: Clone Debian 13 template
+  community.proxmox.proxmox_kvm:
+    api_host: "{{ proxmox_api_host }}"
+    api_user: "{{ proxmox_api_user }}"
+    api_token_id: "{{ proxmox_api_token_id }}"
+    api_token_secret: "{{ proxmox_api_token_secret }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    node: "{{ proxmox_node }}"
+    clone: "{{ proxmox_template_vmid }}"
+    vmid: "{{ vm_vmid }}"
+    name: "{{ vm_name }}"
+    full: true
+    storage: "{{ vm_storage }}"
+    timeout: "{{ proxmox_clone_timeout }}"
+    state: present
+
+- name: Configure VM hardware and cloud-init networking
+  community.proxmox.proxmox_kvm:
+    api_host: "{{ proxmox_api_host }}"
+    api_user: "{{ proxmox_api_user }}"
+    api_token_id: "{{ proxmox_api_token_id }}"
+    api_token_secret: "{{ proxmox_api_token_secret }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    node: "{{ proxmox_node }}"
+    vmid: "{{ vm_vmid }}"
+    update: true
+    cpu: "{{ vm_cpu_type }}"
+    sockets: "{{ cpu_sockets | int }}"
+    cores: "{{ cpu_cores | int }}"
+    memory: "{{ memory_mb | int }}"
+    onboot: "{{ 1 if vm_onboot else 0 }}"
+    agent: "{{ 1 if vm_qemu_agent else 0 }}"
+    numa: "{{ 1 if vm_numa else 0 }}"
+    hotplug: "{{ vm_hotplug }}"
+    ciuser: "{{ cloudinit_ciuser }}"
+    sshkeys: "{{ cloudinit_ssh_public_keys if cloudinit_ssh_public_keys | length > 0 else omit }}"
+    ipconfig:
+      ipconfig0: "{{ vm_ipconfig0 }}"
+    net:
+      net0: "virtio,bridge={{ network_bridge }},tag={{ vlan_tag }},firewall={{ 1 if vm_firewall else 0 }},mtu={{ vm_mtu }}"
+    state: present
+  when: vm_ip_mode == 'dhcp'
+
+- name: Configure VM hardware and cloud-init networking (static)
+  community.proxmox.proxmox_kvm:
+    api_host: "{{ proxmox_api_host }}"
+    api_user: "{{ proxmox_api_user }}"
+    api_token_id: "{{ proxmox_api_token_id }}"
+    api_token_secret: "{{ proxmox_api_token_secret }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    node: "{{ proxmox_node }}"
+    vmid: "{{ vm_vmid }}"
+    update: true
+    cpu: "{{ vm_cpu_type }}"
+    sockets: "{{ cpu_sockets | int }}"
+    cores: "{{ cpu_cores | int }}"
+    memory: "{{ memory_mb | int }}"
+    onboot: "{{ 1 if vm_onboot else 0 }}"
+    agent: "{{ 1 if vm_qemu_agent else 0 }}"
+    numa: "{{ 1 if vm_numa else 0 }}"
+    hotplug: "{{ vm_hotplug }}"
+    ciuser: "{{ cloudinit_ciuser }}"
+    sshkeys: "{{ cloudinit_ssh_public_keys if cloudinit_ssh_public_keys | length > 0 else omit }}"
+    ipconfig:
+      ipconfig0: "{{ vm_ipconfig0 }}"
+    nameservers: "{{ static_dns1 }} {{ static_dns2 }}"
+    net:
+      net0: "virtio,bridge={{ network_bridge }},tag={{ vlan_tag }},firewall={{ 1 if vm_firewall else 0 }},mtu={{ vm_mtu }}"
+    state: present
+  when: vm_ip_mode == 'static'
+
+- name: Read current VM config
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/config"
+    method: GET
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: 200
+  register: proxmox_vm_config_response
+
+- name: Extract current disk config
+  ansible.builtin.set_fact:
+    vm_scsi0_config: "{{ proxmox_vm_config_response.json.data.scsi0 | default('') }}"
+    vm_current_disk_gb: "{{ ((proxmox_vm_config_response.json.data.scsi0 | default('') | regex_findall('size=(\\d+)G') | first | default('0')) | int) }}"
+
+- name: Validate disk config exists
+  ansible.builtin.assert:
+    that:
+      - vm_scsi0_config | length > 0
+    fail_msg: "Could not read scsi0 from VM config. Ensure Debian template disk is on scsi0."
+
+- name: Fail if requested disk is smaller than template disk
+  ansible.builtin.assert:
+    that:
+      - disk_size_gb | int >= vm_current_disk_gb | int
+    fail_msg: "Requested disk_size_gb ({{ disk_size_gb }}) is smaller than template disk ({{ vm_current_disk_gb }}G). Proxmox cannot shrink disk via API."
+
+- name: Expand disk when requested size is larger than current size
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/resize"
+    method: PUT
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    body_format: form-urlencoded
+    body:
+      disk: scsi0
+      size: "+{{ (disk_size_gb | int) - (vm_current_disk_gb | int) }}G"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: 200
+  when: disk_size_gb | int > vm_current_disk_gb | int
+
+- name: Build scsi0 config with backup disabled
+  ansible.builtin.set_fact:
+    vm_scsi0_with_backup_disabled: >-
+      {{
+        vm_scsi0_config | regex_replace('backup=1', 'backup=0')
+        if 'backup=' in vm_scsi0_config
+        else vm_scsi0_config + ',backup=0'
+      }}
+
+- name: Apply backup disabled on scsi0
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/config"
+    method: PUT
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    body_format: form-urlencoded
+    body:
+      scsi0: "{{ vm_scsi0_with_backup_disabled }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: 200
+
+- name: Ensure VM is started
+  community.proxmox.proxmox_kvm:
+    api_host: "{{ proxmox_api_host }}"
+    api_user: "{{ proxmox_api_user }}"
+    api_token_id: "{{ proxmox_api_token_id }}"
+    api_token_secret: "{{ proxmox_api_token_secret }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    node: "{{ proxmox_node }}"
+    vmid: "{{ vm_vmid }}"
+    state: started
+
+- name: Output summary
+  ansible.builtin.debug:
+    msg:
+      - "VM created: {{ vm_name }} (vmid={{ vm_vmid }})"
+      - "Disk: {{ disk_size_gb }}G, CPU: {{ cpu_sockets }} sockets x {{ cpu_cores }} cores, RAM: {{ memory_mb }} MB"
+      - "Network: bridge={{ network_bridge }}, vlan={{ vlan_tag }}, mode={{ vm_ip_mode }}"
