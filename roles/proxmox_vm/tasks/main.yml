@@ -8,6 +8,7 @@
       - proxmox_api_token_id | length > 0
       - proxmox_api_token_secret | length > 0
       - proxmox_node | length > 0
+      - proxmox_snippets_storage | length > 0
       - proxmox_template_vmid | string | length > 0
       - disk_size_gb | int > 0
       - cpu_sockets | int > 0
@@ -197,6 +198,44 @@
     vm_effective_ciuser: "{{ 'root' if root_password | length > 0 else cloudinit_ciuser }}"
     vm_optional_password_payload: "{{ {'cipassword': root_password} if root_password | length > 0 else {} }}"
 
+- name: Build cloud-init user-data snippet content
+  ansible.builtin.set_fact:
+    vm_cloudinit_snippet_name: "vm-{{ vm_vmid }}-{{ lookup('pipe', 'date +%s') }}-user-data.yaml"
+    vm_cloudinit_user_data_content: |
+      #cloud-config
+      package_update: true
+      packages:
+        - qemu-guest-agent
+      runcmd:
+        - systemctl enable --now qemu-guest-agent
+
+- name: Write cloud-init user-data snippet to local temp file
+  ansible.builtin.copy:
+    content: "{{ vm_cloudinit_user_data_content }}"
+    dest: "/tmp/{{ vm_cloudinit_snippet_name }}"
+    mode: "0600"
+
+- name: Upload cloud-init user-data snippet to Proxmox storage
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/storage/{{ proxmox_snippets_storage }}/upload"
+    method: POST
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    body_format: form-multipart
+    body:
+      content: snippets
+      filename:
+        filename: "/tmp/{{ vm_cloudinit_snippet_name }}"
+        mime_type: text/plain
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: 200
+
+- name: Remove temporary local cloud-init snippet file
+  ansible.builtin.file:
+    path: "/tmp/{{ vm_cloudinit_snippet_name }}"
+    state: absent
+
 - name: Check if target VM already exists
   ansible.builtin.uri:
     url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/config"
@@ -262,6 +301,7 @@
       numa: "{{ 1 if vm_numa else 0 }}"
       hotplug: "{{ vm_hotplug }}"
       ciuser: "{{ vm_effective_ciuser }}"
+      cicustom: "user={{ proxmox_snippets_storage }}:snippets/{{ vm_cloudinit_snippet_name }}"
       ipconfig0: "{{ vm_ipconfig0 }}"
       net0: "virtio,bridge={{ network_bridge }},tag={{ vlan_tag }},firewall={{ 1 if vm_firewall else 0 }},mtu={{ vm_mtu }}"
 

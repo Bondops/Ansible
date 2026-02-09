@@ -41,6 +41,7 @@ vm_hotplug: "disk,network,usb,memory,cpu"
 # Internal defaults
 cloudinit_ciuser: "debian"
 cloudinit_ssh_public_keys: ""
+proxmox_snippets_storage: "local"
 proxmox_clone_timeout: 600
 proxmox_operation_retries: 30
 proxmox_operation_delay: 2

@@ -37,12 +37,14 @@ Fixed VM config (not user-editable in form):
 - firewall: disabled
 - mtu: `1`
 - hotplug: `disk,network,usb,memory,cpu`
+- qemu guest agent package is auto-installed on first boot via cloud-init
 
 ## Prerequisites
 
 1. Proxmox API token with permission to clone/configure/start VMs.
 2. Debian 13 cloud-init template in Proxmox (example VMID: `9000`).
 3. Semaphore can access this Git repository.
+4. `proxmox_snippets_storage` must point to a storage with `snippets` content (default `local`).
 
 ## Debian 13 template (one-time, on Proxmox node)
 
