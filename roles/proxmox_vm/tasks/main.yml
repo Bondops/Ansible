@@ -270,8 +270,13 @@
     body: "{{ vm_config_payload_common | combine(vm_optional_sshkeys_payload) }}"
     validate_certs: "{{ proxmox_validate_certs }}"
     return_content: true
-    status_code: 200
+    status_code: [200, 500]
+  register: proxmox_config_dhcp_response
+  until: proxmox_config_dhcp_response.status | int == 200
+  retries: "{{ proxmox_operation_retries }}"
+  delay: "{{ proxmox_operation_delay }}"
   when: vm_ip_mode == 'dhcp'
+  failed_when: proxmox_config_dhcp_response.status | int != 200
 
 - name: Configure VM hardware and cloud-init networking (static)
   ansible.builtin.uri:
@@ -283,8 +288,13 @@
     body: "{{ vm_config_payload_common | combine({'nameserver': static_dns1 + ' ' + static_dns2}) | combine(vm_optional_sshkeys_payload) }}"
     validate_certs: "{{ proxmox_validate_certs }}"
     return_content: true
-    status_code: 200
+    status_code: [200, 500]
+  register: proxmox_config_static_response
+  until: proxmox_config_static_response.status | int == 200
+  retries: "{{ proxmox_operation_retries }}"
+  delay: "{{ proxmox_operation_delay }}"
   when: vm_ip_mode == 'static'
+  failed_when: proxmox_config_static_response.status | int != 200
 
 - name: Read current VM config
   ansible.builtin.uri:
@@ -326,8 +336,13 @@
       size: "+{{ (disk_size_gb | int) - (vm_current_disk_gb | int) }}G"
     validate_certs: "{{ proxmox_validate_certs }}"
     return_content: true
-    status_code: 200
+    status_code: [200, 500]
+  register: proxmox_resize_response
+  until: proxmox_resize_response.status | int == 200
+  retries: "{{ proxmox_operation_retries }}"
+  delay: "{{ proxmox_operation_delay }}"
   when: disk_size_gb | int > vm_current_disk_gb | int
+  failed_when: proxmox_resize_response.status | int != 200
 
 - name: Build scsi0 config with backup disabled
   ansible.builtin.set_fact:
@@ -349,7 +364,12 @@
       scsi0: "{{ vm_scsi0_with_backup_disabled }}"
     validate_certs: "{{ proxmox_validate_certs }}"
     return_content: true
-    status_code: 200
+    status_code: [200, 500]
+  register: proxmox_backup_flag_response
+  until: proxmox_backup_flag_response.status | int == 200
+  retries: "{{ proxmox_operation_retries }}"
+  delay: "{{ proxmox_operation_delay }}"
+  failed_when: proxmox_backup_flag_response.status | int != 200
 
 - name: Read current VM runtime status
   ansible.builtin.uri:
@@ -370,8 +390,13 @@
       Authorization: "{{ proxmox_auth_header }}"
     validate_certs: "{{ proxmox_validate_certs }}"
     return_content: true
-    status_code: 200
+    status_code: [200, 500]
+  register: proxmox_start_response
+  until: proxmox_start_response.status | int == 200
+  retries: "{{ proxmox_operation_retries }}"
+  delay: "{{ proxmox_operation_delay }}"
   when: (proxmox_vm_status_response.json.data.status | default('stopped')) != 'running'
+  failed_when: proxmox_start_response.status | int != 200
 
 - name: Output summary
   ansible.builtin.debug:
