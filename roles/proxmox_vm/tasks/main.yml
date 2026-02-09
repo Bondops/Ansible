@@ -25,6 +25,15 @@
       - vm_ip_mode in ['dhcp', 'static', 'phpipam']
     fail_msg: "ip_mode must be one of: dhcp, static, phpipam"
 
+- name: Dry-run notice
+  ansible.builtin.debug:
+    msg: "Running in Ansible check mode (dry-run). Proxmox create/update tasks are skipped by design."
+  when: ansible_check_mode
+
+- name: End play early in dry-run mode
+  ansible.builtin.meta: end_play
+  when: ansible_check_mode
+
 - name: Validate static networking input
   ansible.builtin.assert:
     that:
