@@ -215,7 +215,7 @@
       {{
         proxmox_inventory_host
         if proxmox_inventory_host | length > 0
-        else ((groups['proxmox_api'] | default([])) | first | default(''))
+        else ((groups['proxmox_api'] | default([])) | first | default(proxmox_api_host))
       }}
     vm_cloudinit_user_data_content: |
       #cloud-config
