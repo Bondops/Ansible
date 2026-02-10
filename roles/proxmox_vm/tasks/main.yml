@@ -481,7 +481,7 @@
   register: proxmox_cloudinit_exec_status_response
   until:
     - proxmox_cloudinit_exec_status_response.status | int == 200
-    - (proxmox_cloudinit_exec_status_response.json.data.exited | default(false))
+    - (proxmox_cloudinit_exec_status_response.json.data.exited | default(false) | bool)
     - (proxmox_cloudinit_exec_status_response.json.data.exitcode | default(1) | int) == 0
   retries: "{{ cloudinit_wait_retries }}"
   delay: "{{ cloudinit_wait_delay }}"
@@ -490,7 +490,7 @@
     - vm_guest_agent_ready | default(false)
   failed_when: >
     proxmox_cloudinit_exec_status_response.status | int != 200 or
-    not (proxmox_cloudinit_exec_status_response.json.data.exited | default(false)) or
+    not (proxmox_cloudinit_exec_status_response.json.data.exited | default(false) | bool) or
     (proxmox_cloudinit_exec_status_response.json.data.exitcode | default(1) | int) != 0
 
 - name: Output summary
