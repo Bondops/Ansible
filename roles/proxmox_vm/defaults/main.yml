@@ -10,6 +10,11 @@ network_bridge: "vmbr1"
 vlan_tag: 10
 ip_mode: "dhcp" # dhcp | static | phpipam
 root_password: "" # Optional. If set, cloud-init user becomes root and this password is applied.
+join_ad: false
+ad_domain_name: ""
+ad_ntp_server_ip: "" # Optional. If empty, domain controllers are used for time sync.
+ad_join_user: "" # Required when join_ad=true
+ad_join_password: "" # Required when join_ad=true
 
 # Used when ip_mode == static
 static_ip_cidr: ""    # Example: 10.10.10.50/24

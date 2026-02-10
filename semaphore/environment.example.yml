@@ -13,6 +13,10 @@ enable_inventory_snippet_fallback: true
 proxmox_snippets_mount_path: "" # Optional override. Default: /mnt/pve/<proxmox_snippets_storage>
 proxmox_inventory_host: "" # Optional explicit inventory hostname. Default: first host in group proxmox_api
 
+# Required only for join_ad=true
+ad_join_user: "administrator"
+ad_join_password: "REPLACE_ME"
+
 # Optional cloud-init defaults
 cloudinit_ciuser: "debian"
 cloudinit_ssh_public_keys: "ssh-ed25519 AAAA..."

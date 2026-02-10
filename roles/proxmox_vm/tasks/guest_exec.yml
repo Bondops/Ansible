@@ -1,0 +1,40 @@
+---
+- name: "Guest exec start: {{ guest_exec_name }}"
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/agent/exec"
+    method: POST
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    body_format: form-urlencoded
+    body:
+      command:
+        - /bin/bash
+        - -lc
+        - "{{ guest_exec_command }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: 200
+  register: guest_exec_start_response
+  no_log: "{{ guest_exec_no_log | default(false) }}"
+
+- name: "Guest exec wait: {{ guest_exec_name }}"
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/agent/exec-status?pid={{ guest_exec_start_response.json.data.pid }}"
+    method: GET
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: [200, 500]
+  register: guest_exec_status_response
+  until:
+    - guest_exec_status_response.status | int == 200
+    - (guest_exec_status_response.json.data.exited | default(false) | bool)
+    - (guest_exec_status_response.json.data.exitcode | default(1) | int) == 0
+  retries: "{{ cloudinit_wait_retries }}"
+  delay: "{{ cloudinit_wait_delay }}"
+  no_log: "{{ guest_exec_no_log | default(false) }}"
+  failed_when: >
+    guest_exec_status_response.status | int != 200 or
+    not (guest_exec_status_response.json.data.exited | default(false) | bool) or
+    (guest_exec_status_response.json.data.exitcode | default(1) | int) != 0

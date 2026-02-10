@@ -17,6 +17,9 @@ Creates a VM in Proxmox from a Debian 13 template with these runtime fields:
 - `root_password` (optional; if set, cloud-init login user is set to `root`)
 - `wait_for_cloudinit` (default `true`; waits for first-boot cloud-init to finish)
 - `cloudinit_user_data_snippet` (optional pre-created Proxmox `cicustom` snippet)
+- `join_ad` (default `false`)
+- `ad_domain_name` (required when `join_ad=true`)
+- `ad_ntp_server_ip` (optional; when empty, first AD DC IP is used)
 
 Static mode fields:
 - `static_ip_cidr`
@@ -39,6 +42,7 @@ Fixed VM config (not user-editable in form):
 - mtu: `1`
 - hotplug: `disk,network,usb,memory,cpu`
 - qemu guest agent can be auto-installed on first boot if `cloudinit_user_data_snippet` is set
+- when `join_ad=true`, AD SSH and SUDO groups are always configured (`SYS-<hostname>-SSH@domain` and `SYS-<hostname>-SUDO@domain`)
 
 ## Prerequisites
 
@@ -131,6 +135,7 @@ sed -i 's/\r$//' your-script.sh
 4. Environment:
 - Create environment and paste values from `semaphore/environment.example.yml`.
 - Replace secrets and hostnames.
+- Add AD join credentials (`ad_join_user` / `ad_join_password`) if you enable `join_ad`.
 
 5. Task Template:
 - Type: Ansible Playbook

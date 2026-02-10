@@ -25,6 +25,15 @@
       - vm_ip_mode in ['dhcp', 'static', 'phpipam']
     fail_msg: "ip_mode must be one of: dhcp, static, phpipam"
 
+- name: Validate AD join input
+  ansible.builtin.assert:
+    that:
+      - ad_domain_name | length > 0
+      - ad_join_user | length > 0
+      - ad_join_password | length > 0
+    fail_msg: "When join_ad=true you must set ad_domain_name, ad_join_user and ad_join_password."
+  when: join_ad | bool
+
 - name: Dry-run notice
   ansible.builtin.debug:
     msg: "Running in Ansible check mode (dry-run). Proxmox create/update tasks are skipped by design."
@@ -646,13 +655,13 @@
   until: proxmox_agent_ping_response.status | int == 200
   retries: "{{ cloudinit_wait_retries }}"
   delay: "{{ cloudinit_wait_delay }}"
-  when: vm_wait_for_cloudinit | bool
+  when: (vm_wait_for_cloudinit | bool) or (join_ad | bool)
   failed_when: false
 
 - name: Determine guest-agent readiness
   ansible.builtin.set_fact:
     vm_guest_agent_ready: "{{ (proxmox_agent_ping_response.status | default(500) | int) == 200 }}"
-  when: vm_wait_for_cloudinit | bool
+  when: (vm_wait_for_cloudinit | bool) or (join_ad | bool)
 
 - name: Warn when guest-agent is not available for cloud-init wait
   ansible.builtin.debug:
@@ -660,6 +669,13 @@
   when:
     - vm_wait_for_cloudinit | bool
     - not vm_guest_agent_ready | default(false)
+
+- name: Require guest-agent for AD join
+  ansible.builtin.assert:
+    that:
+      - vm_guest_agent_ready | default(false)
+    fail_msg: "join_ad=true requires QEMU guest agent to be reachable in the VM."
+  when: join_ad | bool
 
 - name: Start cloud-init wait command inside guest
   ansible.builtin.uri:
@@ -705,6 +721,92 @@
     not (proxmox_cloudinit_exec_status_response.json.data.exited | default(false) | bool) or
     (proxmox_cloudinit_exec_status_response.json.data.exitcode | default(1) | int) != 0
 
+- name: AD join - install required packages
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Install AD packages"
+    guest_exec_command: >-
+      export DEBIAN_FRONTEND=noninteractive &&
+      apt-get update &&
+      apt-get install -y realmd sssd sssd-tools libnss-sss libpam-sss adcli samba-common-bin oddjob oddjob-mkhomedir packagekit sudo ntpsec dnsutils
+  when: join_ad | bool
+
+- name: AD join - configure NTP server
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Configure NTP"
+    guest_exec_command: >-
+      NTP_SERVER="{{ ad_ntp_server_ip | trim }}";
+      if [ -z "$NTP_SERVER" ]; then
+        NTP_SERVER=$(dig +short SRV _ldap._tcp.dc._msdcs.{{ ad_domain_name }}
+          | awk '{print $4}' | sed 's/\.$//' | xargs -r -n1 dig +short
+          | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1);
+      fi;
+      if [ -z "$NTP_SERVER" ]; then
+        echo "No NTP server found from AD DNS and no ad_ntp_server_ip provided" >&2; exit 1;
+      fi;
+      sed -i '/^pool /d' /etc/ntpsec/ntp.conf;
+      sed -i '/^server /d' /etc/ntpsec/ntp.conf;
+      echo "server ${NTP_SERVER} prefer" >> /etc/ntpsec/ntp.conf;
+      systemctl restart ntpsec.service
+  when: join_ad | bool
+
+- name: AD join - join domain
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Join Active Directory domain"
+    guest_exec_command: >-
+      if realm list -a | grep -iq '^domain-name:\s*{{ ad_domain_name | lower }}$'; then
+        exit 0;
+      fi;
+      printf '%s' '{{ ad_join_password | b64encode }}' | base64 -d | realm join -U '{{ ad_join_user }}' '{{ ad_domain_name }}'
+    guest_exec_no_log: true
+  when: join_ad | bool
+
+- name: AD join - enable mkhomedir in PAM
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Configure PAM mkhomedir"
+    guest_exec_command: >-
+      LINE='session optional        pam_mkhomedir.so skel=/etc/skel umask=077';
+      grep -qF "$LINE" /etc/pam.d/common-session || echo "$LINE" >> /etc/pam.d/common-session
+  when: join_ad | bool
+
+- name: AD join - configure SSSD and restart service
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Configure SSSD"
+    guest_exec_command: >-
+      if grep -q '^use_fully_qualified_names' /etc/sssd/sssd.conf; then
+        sed -i 's/^use_fully_qualified_names.*/use_fully_qualified_names = False/' /etc/sssd/sssd.conf;
+      else
+        printf '\nuse_fully_qualified_names = False\n' >> /etc/sssd/sssd.conf;
+      fi;
+      chmod 600 /etc/sssd/sssd.conf;
+      systemctl restart sssd
+  when: join_ad | bool
+
+- name: AD join - configure sudo group
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Configure AD sudo group"
+    guest_exec_command: >-
+      HOSTNAME_SHORT=$(hostname -s);
+      SUDO_GROUP="SYS-${HOSTNAME_SHORT}-SUDO@{{ ad_domain_name }}";
+      echo "%${SUDO_GROUP} ALL=(ALL) ALL" > /etc/sudoers.d/ad-sudo;
+      chmod 440 /etc/sudoers.d/ad-sudo
+  when: join_ad | bool
+
+- name: AD join - configure SSH permitted group
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Configure AD SSH group"
+    guest_exec_command: >-
+      HOSTNAME_SHORT=$(hostname -s);
+      SSH_GROUP="SYS-${HOSTNAME_SHORT}-SSH@{{ ad_domain_name }}";
+      realm permit -g "${SSH_GROUP}"
+  when: join_ad | bool
+
 - name: Output summary
   ansible.builtin.debug:
     msg:
@@ -714,3 +816,4 @@
       - "Cloud-init login user: {{ vm_effective_ciuser }}"
       - "Cloud-init initialization: {{ 'waited until done' if (vm_wait_for_cloudinit | bool and vm_guest_agent_ready | default(false)) else 'wait skipped/disabled' }}"
       - "Cloud-init custom snippet: {{ vm_cloudinit_cicustom_value if vm_cloudinit_snippet_enabled else 'not set' }}"
+      - "AD join: {{ 'completed for ' + ad_domain_name if join_ad | bool else 'disabled' }}"
