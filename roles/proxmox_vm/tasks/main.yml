@@ -210,9 +210,13 @@
   ansible.builtin.set_fact:
     vm_cloudinit_snippet_storage_id: "{{ vm_cloudinit_snippet_source | regex_replace('^user=([^:]+):.*$', '\\1') }}"
     vm_cloudinit_snippet_volid: "{{ vm_cloudinit_snippet_source | regex_replace('^user=', '') }}"
-    vm_proxmox_ssh_host: "{{ proxmox_ssh_host if proxmox_ssh_host | length > 0 else proxmox_api_host }}"
     vm_proxmox_snippets_mount_path: "{{ proxmox_snippets_mount_path if proxmox_snippets_mount_path | length > 0 else ('/mnt/pve/' + proxmox_snippets_storage) }}"
-    vm_ssh_key_arg: "{{ ('-i ' + proxmox_ssh_private_key_path) if proxmox_ssh_private_key_path | length > 0 else '' }}"
+    vm_proxmox_delegate_host: >-
+      {{
+        proxmox_inventory_host
+        if proxmox_inventory_host | length > 0
+        else ((groups['proxmox_api'] | default([])) | first | default(''))
+      }}
     vm_cloudinit_user_data_content: |
       #cloud-config
       package_update: true
@@ -253,42 +257,32 @@
       }}
   when: vm_cloudinit_snippet_source | length > 0
 
-- name: Create snippet on Proxmox host via SSH fallback when missing
+- name: Create snippet on Proxmox host via inventory fallback when missing
   when:
     - vm_cloudinit_snippet_source | length > 0
-    - enable_ssh_snippet_fallback | bool
+    - enable_inventory_snippet_fallback | bool
     - not vm_cloudinit_snippet_exists | default(false)
+    - vm_proxmox_delegate_host | length > 0
   block:
-    - name: Write temporary snippet file on Semaphore runner
+    - name: Ensure snippets directory exists on Proxmox host
+      ansible.builtin.file:
+        path: "{{ vm_proxmox_snippets_mount_path }}/snippets"
+        state: directory
+        mode: "0755"
+      delegate_to: "{{ vm_proxmox_delegate_host }}"
+
+    - name: Write snippet file on Proxmox host
       ansible.builtin.copy:
         content: "{{ vm_cloudinit_user_data_content }}"
-        dest: "/tmp/{{ cloudinit_user_data_snippet_filename }}"
-        mode: "0600"
-
-    - name: Ensure snippets directory exists on Proxmox host
-      ansible.builtin.shell: >-
-        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null {{ vm_ssh_key_arg }}
-        {{ proxmox_ssh_user }}@{{ vm_proxmox_ssh_host }}
-        "mkdir -p {{ vm_proxmox_snippets_mount_path }}/snippets"
-      changed_when: false
-
-    - name: Copy snippet file to Proxmox snippets directory
-      ansible.builtin.shell: >-
-        scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null {{ vm_ssh_key_arg }}
-        /tmp/{{ cloudinit_user_data_snippet_filename }}
-        {{ proxmox_ssh_user }}@{{ vm_proxmox_ssh_host }}:{{ vm_proxmox_snippets_mount_path }}/snippets/{{ cloudinit_user_data_snippet_filename }}
-      changed_when: true
+        dest: "{{ vm_proxmox_snippets_mount_path }}/snippets/{{ cloudinit_user_data_snippet_filename }}"
+        mode: "0644"
+      delegate_to: "{{ vm_proxmox_delegate_host }}"
   rescue:
-    - name: Warn when SSH snippet fallback failed
+    - name: Warn when inventory snippet fallback failed
       ansible.builtin.debug:
         msg: >-
-          SSH fallback for snippet creation failed on {{ vm_proxmox_ssh_host }}.
+          Inventory fallback for snippet creation failed on {{ vm_proxmox_delegate_host }}.
           Continuing without cicustom snippet.
-  always:
-    - name: Remove temporary snippet file from Semaphore runner
-      ansible.builtin.file:
-        path: "/tmp/{{ cloudinit_user_data_snippet_filename }}"
-        state: absent
 
 - name: Re-query Proxmox storage content after SSH fallback
   ansible.builtin.uri:
@@ -303,7 +297,7 @@
   failed_when: false
   when:
     - vm_cloudinit_snippet_source | length > 0
-    - enable_ssh_snippet_fallback | bool
+    - enable_inventory_snippet_fallback | bool
     - not vm_cloudinit_snippet_exists | default(false)
 
 - name: Resolve pre-created cloud-init snippet usage
@@ -330,6 +324,15 @@
         )
       }}
     vm_cloudinit_cicustom_value: "{{ vm_cloudinit_snippet_source }}"
+
+- name: Warn when no proxmox_api inventory host is available for fallback
+  ansible.builtin.debug:
+    msg: "No host found in group 'proxmox_api'. Skipping inventory snippet fallback."
+  when:
+    - vm_cloudinit_snippet_source | length > 0
+    - enable_inventory_snippet_fallback | bool
+    - not vm_cloudinit_snippet_exists | default(false)
+    - vm_proxmox_delegate_host | length == 0
 
 - name: Warn when configured/default cicustom snippet does not exist
   ansible.builtin.debug:

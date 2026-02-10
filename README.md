@@ -47,7 +47,7 @@ Fixed VM config (not user-editable in form):
 3. Semaphore can access this Git repository.
 4. Optional: pre-create a cloud-init snippet and set `cloudinit_user_data_snippet`.
    In some Proxmox setups, `/storage/<id>/upload` does not allow `content=snippets`.
-5. Optional fallback: enable SSH snippet creation (`enable_ssh_snippet_fallback: true`) so missing snippet files can be created on `/mnt/pve/<storage>/snippets`.
+5. Optional inventory fallback: enable `enable_inventory_snippet_fallback: true` so missing snippets can be created on the Proxmox host via Ansible connection (using inventory credentials/key).
 
 Example snippet (on Proxmox node):
 
@@ -71,7 +71,7 @@ cloudinit_user_data_snippet: "user=cephfs:snippets/install-qga.yaml"
 
 If `cloudinit_user_data_snippet` is empty, the playbook will try default:
 - `user={{ proxmox_snippets_storage }}:snippets/{{ cloudinit_user_data_snippet_filename }}`
-If the snippet is missing, playbook can create it via SSH fallback and then continue with `cicustom`.
+If the snippet is missing, playbook can create it via inventory fallback on `/mnt/pve/<proxmox_snippets_storage>/snippets`.
 If snippet still cannot be used, it automatically retries VM config without `cicustom`.
 
 ## Debian 13 template (one-time, on Proxmox node)
@@ -124,7 +124,9 @@ sed -i 's/\r$//' your-script.sh
 
 3. Inventory:
 - Type: Static
+- Name suggestion: `proxmox_api`
 - Content from `inventories/semaphore/hosts.yml`
+- Attach the Proxmox SSH key in inventory credentials (Key Store), so fallback snippet creation can run on the Proxmox host.
 
 4. Environment:
 - Create environment and paste values from `semaphore/environment.example.yml`.
