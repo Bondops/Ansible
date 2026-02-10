@@ -206,10 +206,53 @@
         else ('user=' + proxmox_snippets_storage + ':snippets/' + cloudinit_user_data_snippet_filename)
       }}
 
+- name: Parse cloud-init snippet storage and volume id
+  ansible.builtin.set_fact:
+    vm_cloudinit_snippet_storage_id: "{{ vm_cloudinit_snippet_source | regex_replace('^user=([^:]+):.*$', '\\1') }}"
+    vm_cloudinit_snippet_volid: "{{ vm_cloudinit_snippet_source | regex_replace('^user=', '') }}"
+  when: vm_cloudinit_snippet_source | length > 0
+
+- name: Query Proxmox storage content for snippet existence
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/storage/{{ vm_cloudinit_snippet_storage_id }}/content"
+    method: GET
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: [200, 404, 500]
+  register: proxmox_snippet_storage_content_response
+  failed_when: false
+  when: vm_cloudinit_snippet_source | length > 0
+
 - name: Resolve pre-created cloud-init snippet usage
   ansible.builtin.set_fact:
-    vm_cloudinit_snippet_enabled: "{{ vm_cloudinit_snippet_source | length > 0 }}"
+    vm_cloudinit_snippet_enabled: >-
+      {{
+        (vm_cloudinit_snippet_source | length > 0)
+        and
+        (proxmox_snippet_storage_content_response.status | default(500) | int == 200)
+        and
+        (
+          (
+            proxmox_snippet_storage_content_response.json.data
+            | default([])
+            | selectattr('volid', 'equalto', vm_cloudinit_snippet_volid)
+            | list
+            | length
+          ) > 0
+        )
+      }}
     vm_cloudinit_cicustom_value: "{{ vm_cloudinit_snippet_source }}"
+
+- name: Warn when configured/default cicustom snippet does not exist
+  ansible.builtin.debug:
+    msg: >-
+      Cloud-init snippet '{{ vm_cloudinit_snippet_source }}' was not found on storage '{{ vm_cloudinit_snippet_storage_id }}'.
+      Continuing without cicustom so VM can start.
+  when:
+    - vm_cloudinit_snippet_source | length > 0
+    - not vm_cloudinit_snippet_enabled
 
 - name: Build optional cicustom payload
   ansible.builtin.set_fact:
