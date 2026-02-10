@@ -200,6 +200,7 @@
 
 - name: Build cloud-init user-data snippet content
   ansible.builtin.set_fact:
+    vm_cloudinit_snippet_enabled: true
     vm_snippets_storage_in_use: "{{ proxmox_snippets_storage }}"
     vm_cloudinit_snippet_name: "vm-{{ vm_vmid }}-{{ lookup('pipe', 'date +%s') }}-user-data.yaml"
     vm_cloudinit_user_data_content: |
@@ -256,12 +257,37 @@
           - "filename=@/tmp/{{ vm_cloudinit_snippet_name }}"
           - "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/storage/local/upload"
       register: proxmox_upload_snippet_fallback
+      failed_when: false
       changed_when: proxmox_upload_snippet_fallback.rc == 0
+
+    - name: Disable cloud-init snippet when fallback upload also fails
+      ansible.builtin.set_fact:
+        vm_cloudinit_snippet_enabled: "{{ proxmox_upload_snippet_fallback.rc == 0 }}"
+
+    - name: Warn when snippet upload failed on both storages
+      ansible.builtin.debug:
+        msg: >-
+          Cloud-init snippet upload failed on '{{ proxmox_snippets_storage }}' and 'local' (HTTP 400).
+          Continuing without custom user-data; qemu-guest-agent auto-install on first boot is skipped.
+      when: not vm_cloudinit_snippet_enabled
 
 - name: Remove temporary local cloud-init snippet file
   ansible.builtin.file:
     path: "/tmp/{{ vm_cloudinit_snippet_name }}"
     state: absent
+
+- name: Build optional cicustom payload
+  ansible.builtin.set_fact:
+    vm_optional_cicustom_payload: >-
+      {{
+        {'cicustom': 'user=' + vm_snippets_storage_in_use + ':snippets/' + vm_cloudinit_snippet_name}
+        if vm_cloudinit_snippet_enabled
+        else {}
+      }}
+
+- name: Determine effective cloud-init wait behavior
+  ansible.builtin.set_fact:
+    vm_wait_for_cloudinit: "{{ (wait_for_cloudinit | bool) and vm_cloudinit_snippet_enabled }}"
 
 - name: Check if target VM already exists
   ansible.builtin.uri:
@@ -328,7 +354,6 @@
       numa: "{{ 1 if vm_numa else 0 }}"
       hotplug: "{{ vm_hotplug }}"
       ciuser: "{{ vm_effective_ciuser }}"
-      cicustom: "user={{ vm_snippets_storage_in_use }}:snippets/{{ vm_cloudinit_snippet_name }}"
       ipconfig0: "{{ vm_ipconfig0 }}"
       net0: "virtio,bridge={{ network_bridge }},tag={{ vlan_tag }},firewall={{ 1 if vm_firewall else 0 }},mtu={{ vm_mtu }}"
 
@@ -339,7 +364,7 @@
     headers:
       Authorization: "{{ proxmox_auth_header }}"
     body_format: form-urlencoded
-    body: "{{ vm_config_payload_common | combine(vm_optional_sshkeys_payload) | combine(vm_optional_password_payload) }}"
+    body: "{{ vm_config_payload_common | combine(vm_optional_sshkeys_payload) | combine(vm_optional_password_payload) | combine(vm_optional_cicustom_payload) }}"
     validate_certs: "{{ proxmox_validate_certs }}"
     return_content: true
     status_code: [200, 500]
@@ -357,7 +382,7 @@
     headers:
       Authorization: "{{ proxmox_auth_header }}"
     body_format: form-urlencoded
-    body: "{{ vm_config_payload_common | combine({'nameserver': static_dns1 + ' ' + static_dns2}) | combine(vm_optional_sshkeys_payload) | combine(vm_optional_password_payload) }}"
+    body: "{{ vm_config_payload_common | combine({'nameserver': static_dns1 + ' ' + static_dns2}) | combine(vm_optional_sshkeys_payload) | combine(vm_optional_password_payload) | combine(vm_optional_cicustom_payload) }}"
     validate_certs: "{{ proxmox_validate_certs }}"
     return_content: true
     status_code: [200, 500]
@@ -483,7 +508,7 @@
   until: proxmox_agent_ping_response.status | int == 200
   retries: "{{ cloudinit_wait_retries }}"
   delay: "{{ cloudinit_wait_delay }}"
-  when: wait_for_cloudinit | bool
+  when: vm_wait_for_cloudinit | bool
   failed_when: proxmox_agent_ping_response.status | int != 200
 
 - name: Start cloud-init wait command inside guest
@@ -502,7 +527,7 @@
     return_content: true
     status_code: 200
   register: proxmox_cloudinit_exec_response
-  when: wait_for_cloudinit | bool
+  when: vm_wait_for_cloudinit | bool
 
 - name: Poll cloud-init wait command result
   ansible.builtin.uri:
@@ -520,7 +545,7 @@
     - (proxmox_cloudinit_exec_status_response.json.data.exitcode | default(1) | int) == 0
   retries: "{{ cloudinit_wait_retries }}"
   delay: "{{ cloudinit_wait_delay }}"
-  when: wait_for_cloudinit | bool
+  when: vm_wait_for_cloudinit | bool
   failed_when: >
     proxmox_cloudinit_exec_status_response.status | int != 200 or
     not (proxmox_cloudinit_exec_status_response.json.data.exited | default(false)) or
@@ -533,5 +558,5 @@
       - "Disk: {{ disk_size_gb }}G, CPU: {{ cpu_sockets }} sockets x {{ cpu_cores }} cores, RAM: {{ memory_mb }} MB"
       - "Network: bridge={{ network_bridge }}, vlan={{ vlan_tag }}, mode={{ vm_ip_mode }}"
       - "Cloud-init login user: {{ vm_effective_ciuser }}"
-      - "Cloud-init initialization: {{ 'waited until done' if wait_for_cloudinit | bool else 'wait disabled' }}"
-      - "Cloud-init snippet storage: {{ vm_snippets_storage_in_use }}"
+      - "Cloud-init initialization: {{ 'waited until done' if vm_wait_for_cloudinit | bool else 'wait disabled' }}"
+      - "Cloud-init snippet storage: {{ vm_snippets_storage_in_use if vm_cloudinit_snippet_enabled else 'disabled (upload failed)' }}"
