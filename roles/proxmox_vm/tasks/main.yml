@@ -210,6 +210,16 @@
   ansible.builtin.set_fact:
     vm_cloudinit_snippet_storage_id: "{{ vm_cloudinit_snippet_source | regex_replace('^user=([^:]+):.*$', '\\1') }}"
     vm_cloudinit_snippet_volid: "{{ vm_cloudinit_snippet_source | regex_replace('^user=', '') }}"
+    vm_proxmox_ssh_host: "{{ proxmox_ssh_host if proxmox_ssh_host | length > 0 else proxmox_api_host }}"
+    vm_proxmox_snippets_mount_path: "{{ proxmox_snippets_mount_path if proxmox_snippets_mount_path | length > 0 else ('/mnt/pve/' + proxmox_snippets_storage) }}"
+    vm_ssh_key_arg: "{{ ('-i ' + proxmox_ssh_private_key_path) if proxmox_ssh_private_key_path | length > 0 else '' }}"
+    vm_cloudinit_user_data_content: |
+      #cloud-config
+      package_update: true
+      packages:
+        - qemu-guest-agent
+      runcmd:
+        - systemctl enable --now qemu-guest-agent
   when: vm_cloudinit_snippet_source | length > 0
 
 - name: Query Proxmox storage content for snippet existence
@@ -225,12 +235,10 @@
   failed_when: false
   when: vm_cloudinit_snippet_source | length > 0
 
-- name: Resolve pre-created cloud-init snippet usage
+- name: Resolve initial snippet existence from Proxmox API
   ansible.builtin.set_fact:
-    vm_cloudinit_snippet_enabled: >-
+    vm_cloudinit_snippet_exists: >-
       {{
-        (vm_cloudinit_snippet_source | length > 0)
-        and
         (proxmox_snippet_storage_content_response.status | default(500) | int == 200)
         and
         (
@@ -241,6 +249,84 @@
             | list
             | length
           ) > 0
+        )
+      }}
+  when: vm_cloudinit_snippet_source | length > 0
+
+- name: Create snippet on Proxmox host via SSH fallback when missing
+  when:
+    - vm_cloudinit_snippet_source | length > 0
+    - enable_ssh_snippet_fallback | bool
+    - not vm_cloudinit_snippet_exists | default(false)
+  block:
+    - name: Write temporary snippet file on Semaphore runner
+      ansible.builtin.copy:
+        content: "{{ vm_cloudinit_user_data_content }}"
+        dest: "/tmp/{{ cloudinit_user_data_snippet_filename }}"
+        mode: "0600"
+
+    - name: Ensure snippets directory exists on Proxmox host
+      ansible.builtin.shell: >-
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null {{ vm_ssh_key_arg }}
+        {{ proxmox_ssh_user }}@{{ vm_proxmox_ssh_host }}
+        "mkdir -p {{ vm_proxmox_snippets_mount_path }}/snippets"
+      changed_when: false
+
+    - name: Copy snippet file to Proxmox snippets directory
+      ansible.builtin.shell: >-
+        scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null {{ vm_ssh_key_arg }}
+        /tmp/{{ cloudinit_user_data_snippet_filename }}
+        {{ proxmox_ssh_user }}@{{ vm_proxmox_ssh_host }}:{{ vm_proxmox_snippets_mount_path }}/snippets/{{ cloudinit_user_data_snippet_filename }}
+      changed_when: true
+  rescue:
+    - name: Warn when SSH snippet fallback failed
+      ansible.builtin.debug:
+        msg: >-
+          SSH fallback for snippet creation failed on {{ vm_proxmox_ssh_host }}.
+          Continuing without cicustom snippet.
+  always:
+    - name: Remove temporary snippet file from Semaphore runner
+      ansible.builtin.file:
+        path: "/tmp/{{ cloudinit_user_data_snippet_filename }}"
+        state: absent
+
+- name: Re-query Proxmox storage content after SSH fallback
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/storage/{{ vm_cloudinit_snippet_storage_id }}/content"
+    method: GET
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: [200, 404, 500]
+  register: proxmox_snippet_storage_content_after_fallback_response
+  failed_when: false
+  when:
+    - vm_cloudinit_snippet_source | length > 0
+    - enable_ssh_snippet_fallback | bool
+    - not vm_cloudinit_snippet_exists | default(false)
+
+- name: Resolve pre-created cloud-init snippet usage
+  ansible.builtin.set_fact:
+    vm_cloudinit_snippet_enabled: >-
+      {{
+        (vm_cloudinit_snippet_source | length > 0) and
+        (
+          vm_cloudinit_snippet_exists | default(false)
+          or
+          (
+            (proxmox_snippet_storage_content_after_fallback_response.status | default(500) | int == 200)
+            and
+            (
+              (
+                proxmox_snippet_storage_content_after_fallback_response.json.data
+                | default([])
+                | selectattr('volid', 'equalto', vm_cloudinit_snippet_volid)
+                | list
+                | length
+              ) > 0
+            )
+          )
         )
       }}
     vm_cloudinit_cicustom_value: "{{ vm_cloudinit_snippet_source }}"

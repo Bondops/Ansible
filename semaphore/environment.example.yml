@@ -9,6 +9,11 @@ proxmox_template_vmid: 9000
 proxmox_validate_certs: false
 cloudinit_user_data_snippet: "" # Optional, e.g. "user=cephfs:snippets/install-qga.yaml"
 proxmox_snippets_storage: "cephfs"
+enable_ssh_snippet_fallback: true
+proxmox_snippets_mount_path: "" # Optional override. Default: /mnt/pve/<proxmox_snippets_storage>
+proxmox_ssh_host: "" # Optional override. Default: proxmox_api_host
+proxmox_ssh_user: "root"
+proxmox_ssh_private_key_path: "" # Optional key path on Semaphore runner (or use key provided by Key Store)
 
 # Optional cloud-init defaults
 cloudinit_ciuser: "debian"

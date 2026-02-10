@@ -44,6 +44,11 @@ cloudinit_ssh_public_keys: ""
 proxmox_snippets_storage: "local"
 cloudinit_user_data_snippet: "" # Optional pre-created Proxmox cicustom value, e.g. "user=cephfs:snippets/install-qga.yaml"
 cloudinit_user_data_snippet_filename: "install-qga.yaml"
+enable_ssh_snippet_fallback: true
+proxmox_snippets_mount_path: "" # Optional override. Default: /mnt/pve/<proxmox_snippets_storage>
+proxmox_ssh_host: "" # Optional override. Default: proxmox_api_host
+proxmox_ssh_user: "root"
+proxmox_ssh_private_key_path: "" # Optional key path on Semaphore runner (leave empty to use default ssh key/agent)
 proxmox_clone_timeout: 600
 proxmox_operation_retries: 30
 proxmox_operation_delay: 2
