@@ -725,6 +725,8 @@
   ansible.builtin.include_tasks: guest_exec.yml
   vars:
     guest_exec_name: "Install AD packages"
+    guest_exec_retries: 360
+    guest_exec_delay: 5
     guest_exec_command: >-
       export DEBIAN_FRONTEND=noninteractive &&
       apt-get update &&

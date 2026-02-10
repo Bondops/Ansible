@@ -31,8 +31,8 @@
     - guest_exec_status_response.status | int == 200
     - (guest_exec_status_response.json.data.exited | default(false) | bool)
     - (guest_exec_status_response.json.data.exitcode | default(1) | int) == 0
-  retries: "{{ cloudinit_wait_retries }}"
-  delay: "{{ cloudinit_wait_delay }}"
+  retries: "{{ guest_exec_retries | default(cloudinit_wait_retries) }}"
+  delay: "{{ guest_exec_delay | default(cloudinit_wait_delay) }}"
   no_log: "{{ guest_exec_no_log | default(false) }}"
   failed_when: >
     guest_exec_status_response.status | int != 200 or
