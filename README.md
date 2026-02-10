@@ -47,6 +47,7 @@ Fixed VM config (not user-editable in form):
 3. Semaphore can access this Git repository.
 4. Optional: pre-create a cloud-init snippet and set `cloudinit_user_data_snippet`.
    In some Proxmox setups, `/storage/<id>/upload` does not allow `content=snippets`.
+5. For automatic snippet creation, Semaphore runner must have `ssh`/`scp` access to the Proxmox node.
 
 Example snippet (on Proxmox node):
 
@@ -67,6 +68,11 @@ Then set:
 ```yaml
 cloudinit_user_data_snippet: "user=cephfs:snippets/install-qga.yaml"
 ```
+
+Automatic mode (no manual snippet file):
+- Set `auto_create_cloudinit_snippet: true`
+- Set `proxmox_snippets_storage` and `proxmox_snippets_mount_path` (e.g. `cephfs` and `/mnt/pve/cephfs`)
+- Ensure runner can SSH to Proxmox (`proxmox_ssh_user` / optional `proxmox_ssh_private_key_path`)
 
 ## Debian 13 template (one-time, on Proxmox node)
 

@@ -197,10 +197,79 @@
     vm_effective_ciuser: "{{ 'root' if root_password | length > 0 else cloudinit_ciuser }}"
     vm_optional_password_payload: "{{ {'cipassword': root_password} if root_password | length > 0 else {} }}"
 
+- name: Resolve Proxmox SSH host for auto snippet creation
+  ansible.builtin.set_fact:
+    vm_proxmox_ssh_host: "{{ proxmox_ssh_host if proxmox_ssh_host | length > 0 else proxmox_api_host }}"
+
+- name: Build cloud-init user-data snippet content
+  ansible.builtin.set_fact:
+    vm_cloudinit_user_data_content: |
+      #cloud-config
+      package_update: true
+      packages:
+        - qemu-guest-agent
+      runcmd:
+        - systemctl enable --now qemu-guest-agent
+
+- name: Auto-create cloud-init snippet on Proxmox node when not provided
+  when:
+    - auto_create_cloudinit_snippet | bool
+    - cloudinit_user_data_snippet | trim | length == 0
+  block:
+    - name: Create local temporary cloud-init snippet file
+      ansible.builtin.copy:
+        content: "{{ vm_cloudinit_user_data_content }}"
+        dest: "/tmp/{{ cloudinit_user_data_snippet_filename }}"
+        mode: "0600"
+
+    - name: Ensure remote snippets directory exists
+      ansible.builtin.shell: >-
+        ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ ('-i ' + proxmox_ssh_private_key_path) if proxmox_ssh_private_key_path | length > 0 else '' }}
+        {{ proxmox_ssh_user }}@{{ vm_proxmox_ssh_host }}
+        "mkdir -p {{ proxmox_snippets_mount_path }}/snippets"
+      changed_when: false
+
+    - name: Copy snippet file to Proxmox snippets directory
+      ansible.builtin.shell: >-
+        scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null
+        {{ ('-i ' + proxmox_ssh_private_key_path) if proxmox_ssh_private_key_path | length > 0 else '' }}
+        /tmp/{{ cloudinit_user_data_snippet_filename }}
+        {{ proxmox_ssh_user }}@{{ vm_proxmox_ssh_host }}:{{ proxmox_snippets_mount_path }}/snippets/{{ cloudinit_user_data_snippet_filename }}
+      changed_when: true
+
+    - name: Set auto-created cicustom snippet reference
+      ansible.builtin.set_fact:
+        vm_cloudinit_user_data_snippet_effective: "user={{ proxmox_snippets_storage }}:snippets/{{ cloudinit_user_data_snippet_filename }}"
+  rescue:
+    - name: Warn that auto snippet creation failed
+      ansible.builtin.debug:
+        msg: >-
+          Auto-creation of cloud-init snippet via SSH failed.
+          Continuing without custom snippet unless cloudinit_user_data_snippet is set manually.
+
+    - name: Set empty effective snippet when auto creation failed
+      ansible.builtin.set_fact:
+        vm_cloudinit_user_data_snippet_effective: ""
+  always:
+    - name: Remove local temporary cloud-init snippet file
+      ansible.builtin.file:
+        path: "/tmp/{{ cloudinit_user_data_snippet_filename }}"
+        state: absent
+
+- name: Determine cloud-init snippet source
+  ansible.builtin.set_fact:
+    vm_cloudinit_snippet_source: >-
+      {{
+        vm_cloudinit_user_data_snippet_effective
+        if (vm_cloudinit_user_data_snippet_effective | default('') | length > 0)
+        else (cloudinit_user_data_snippet | trim)
+      }}
+
 - name: Resolve pre-created cloud-init snippet usage
   ansible.builtin.set_fact:
-    vm_cloudinit_snippet_enabled: "{{ cloudinit_user_data_snippet | trim | length > 0 }}"
-    vm_cloudinit_cicustom_value: "{{ cloudinit_user_data_snippet | trim }}"
+    vm_cloudinit_snippet_enabled: "{{ vm_cloudinit_snippet_source | length > 0 }}"
+    vm_cloudinit_cicustom_value: "{{ vm_cloudinit_snippet_source }}"
 
 - name: Build optional cicustom payload
   ansible.builtin.set_fact:
