@@ -42,6 +42,7 @@ vm_hotplug: "disk,network,usb,memory,cpu"
 cloudinit_ciuser: "debian"
 cloudinit_ssh_public_keys: ""
 proxmox_snippets_storage: "local"
+cloudinit_user_data_snippet: "" # Optional pre-created Proxmox cicustom value, e.g. "user=cephfs:snippets/install-qga.yaml"
 proxmox_clone_timeout: 600
 proxmox_operation_retries: 30
 proxmox_operation_delay: 2

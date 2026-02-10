@@ -16,6 +16,7 @@ Creates a VM in Proxmox from a Debian 13 template with these runtime fields:
 - `ip_mode` (`dhcp`, `static`, `phpipam`)
 - `root_password` (optional; if set, cloud-init login user is set to `root`)
 - `wait_for_cloudinit` (default `true`; waits for first-boot cloud-init to finish)
+- `cloudinit_user_data_snippet` (optional pre-created Proxmox `cicustom` snippet)
 
 Static mode fields:
 - `static_ip_cidr`
@@ -37,15 +38,35 @@ Fixed VM config (not user-editable in form):
 - firewall: disabled
 - mtu: `1`
 - hotplug: `disk,network,usb,memory,cpu`
-- qemu guest agent package is auto-installed on first boot via cloud-init
+- qemu guest agent can be auto-installed on first boot if `cloudinit_user_data_snippet` is set
 
 ## Prerequisites
 
 1. Proxmox API token with permission to clone/configure/start VMs.
 2. Debian 13 cloud-init template in Proxmox (example VMID: `9000`).
 3. Semaphore can access this Git repository.
-4. `proxmox_snippets_storage` should point to a storage with `snippets` content (default `local`).
-   If upload to this storage fails, the playbook automatically falls back to `local`.
+4. Optional: pre-create a cloud-init snippet and set `cloudinit_user_data_snippet`.
+   In some Proxmox setups, `/storage/<id>/upload` does not allow `content=snippets`.
+
+Example snippet (on Proxmox node):
+
+```bash
+mkdir -p /mnt/pve/cephfs/snippets
+cat >/mnt/pve/cephfs/snippets/install-qga.yaml <<'EOF'
+#cloud-config
+package_update: true
+packages:
+  - qemu-guest-agent
+runcmd:
+  - systemctl enable --now qemu-guest-agent
+EOF
+```
+
+Then set:
+
+```yaml
+cloudinit_user_data_snippet: "user=cephfs:snippets/install-qga.yaml"
+```
 
 ## Debian 13 template (one-time, on Proxmox node)
 

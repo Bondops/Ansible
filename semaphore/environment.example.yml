@@ -7,7 +7,7 @@ proxmox_api_token_secret: "REPLACE_ME"
 proxmox_node: "pve"
 proxmox_template_vmid: 9000
 proxmox_validate_certs: false
-proxmox_snippets_storage: "local" # must support snippets content
+cloudinit_user_data_snippet: "" # Optional, e.g. "user=cephfs:snippets/install-qga.yaml"
 
 # Optional cloud-init defaults
 cloudinit_ciuser: "debian"
