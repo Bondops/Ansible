@@ -412,6 +412,7 @@
 - name: Build common VM config payload
   ansible.builtin.set_fact:
     vm_config_payload_common:
+      name: "{{ vm_name }}"
       cpu: "{{ vm_cpu_type }}"
       sockets: "{{ cpu_sockets | int }}"
       cores: "{{ cpu_cores | int }}"
