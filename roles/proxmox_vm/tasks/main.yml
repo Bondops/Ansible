@@ -721,6 +721,19 @@
     not (proxmox_cloudinit_exec_status_response.json.data.exited | default(false) | bool) or
     (proxmox_cloudinit_exec_status_response.json.data.exitcode | default(1) | int) != 0
 
+- name: Ensure root password is applied inside guest
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Apply root password"
+    guest_exec_no_log: true
+    guest_exec_command: >-
+      PW=$(printf '%s' '{{ root_password | b64encode }}' | base64 -d);
+      echo "root:${PW}" | chpasswd;
+      passwd -u root >/dev/null 2>&1 || true
+  when:
+    - root_password | length > 0
+    - vm_guest_agent_ready | default(false)
+
 - name: AD join - install required packages
   ansible.builtin.include_tasks: guest_exec.yml
   vars:
