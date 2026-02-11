@@ -555,6 +555,46 @@
   ansible.builtin.set_fact:
     vm_scsi0_config: "{{ proxmox_vm_config_response.json.data.scsi0 | default('') }}"
     vm_current_disk_gb: "{{ ((proxmox_vm_config_response.json.data.scsi0 | default('') | regex_findall('size=(\\d+)G') | first | default('0')) | int) }}"
+    vm_has_serial0: "{{ proxmox_vm_config_response.json.data.serial0 is defined }}"
+
+- name: Set graphic card to default and remove serial0 when present
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/config"
+    method: PUT
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    body_format: form-urlencoded
+    body:
+      vga: "{{ vm_vga }}"
+      delete: "serial0"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: [200, 500]
+  register: proxmox_display_with_delete_response
+  until: proxmox_display_with_delete_response.status | int == 200
+  retries: "{{ proxmox_operation_retries }}"
+  delay: "{{ proxmox_operation_delay }}"
+  when: vm_has_serial0 | bool
+  failed_when: proxmox_display_with_delete_response.status | int != 200
+
+- name: Set graphic card to default when serial0 is not present
+  ansible.builtin.uri:
+    url: "https://{{ proxmox_api_host }}:8006/api2/json/nodes/{{ proxmox_node }}/qemu/{{ vm_vmid }}/config"
+    method: PUT
+    headers:
+      Authorization: "{{ proxmox_auth_header }}"
+    body_format: form-urlencoded
+    body:
+      vga: "{{ vm_vga }}"
+    validate_certs: "{{ proxmox_validate_certs }}"
+    return_content: true
+    status_code: [200, 500]
+  register: proxmox_display_only_response
+  until: proxmox_display_only_response.status | int == 200
+  retries: "{{ proxmox_operation_retries }}"
+  delay: "{{ proxmox_operation_delay }}"
+  when: not vm_has_serial0 | bool
+  failed_when: proxmox_display_only_response.status | int != 200
 
 - name: Validate disk config exists
   ansible.builtin.assert:
