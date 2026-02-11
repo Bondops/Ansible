@@ -838,6 +838,7 @@
   ansible.builtin.include_tasks: guest_exec.yml
   vars:
     guest_exec_name: "Verify Active Directory domain join"
+    guest_exec_allow_missing_pid: true
     guest_exec_command: >-
       realm list -a | grep -iq '^domain-name:\s*{{ ad_domain_name | lower }}$'
   when: join_ad | bool
