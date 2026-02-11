@@ -750,21 +750,34 @@
   ansible.builtin.include_tasks: guest_exec.yml
   vars:
     guest_exec_name: "Configure NTP"
+    guest_exec_allow_missing_pid: true
     guest_exec_command: >-
-      NTP_SERVER="{{ ad_ntp_server_ip | trim }}";
-      if [ -z "$NTP_SERVER" ]; then
-        NTP_SERVER=$(dig +short SRV _ldap._tcp.dc._msdcs.{{ ad_domain_name }}
-          | awk '{print $4}' | sed 's/\.$//' | xargs -r -n1 dig +short
-          | grep -E '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$' | head -n1);
-      fi;
-      if [ -z "$NTP_SERVER" ]; then
-        echo "No NTP server found from AD DNS and no ad_ntp_server_ip provided" >&2; exit 1;
-      fi;
       sed -i '/^pool /d' /etc/ntpsec/ntp.conf;
       sed -i '/^server /d' /etc/ntpsec/ntp.conf;
-      echo "server ${NTP_SERVER} prefer" >> /etc/ntpsec/ntp.conf;
+      echo "server {{ ad_ntp_server_ip | trim }} prefer" >> /etc/ntpsec/ntp.conf;
       systemctl restart ntpsec.service
-  when: join_ad | bool
+  when:
+    - join_ad | bool
+    - ad_ntp_server_ip | trim | length > 0
+
+- name: AD join - verify NTP service and config
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Verify NTP config"
+    guest_exec_allow_missing_pid: true
+    guest_exec_command: >-
+      grep -Eq '^server[[:space:]]+{{ ad_ntp_server_ip | trim }}([[:space:]]|$)' /etc/ntpsec/ntp.conf &&
+      systemctl is-active --quiet ntpsec
+  when:
+    - join_ad | bool
+    - ad_ntp_server_ip | trim | length > 0
+
+- name: AD join - keep default NTP servers when no AD NTP IP is provided
+  ansible.builtin.debug:
+    msg: "ad_ntp_server_ip is empty. Keeping Debian default NTP configuration."
+  when:
+    - join_ad | bool
+    - ad_ntp_server_ip | trim | length == 0
 
 - name: AD join - join domain
   ansible.builtin.include_tasks: guest_exec.yml
@@ -776,6 +789,14 @@
       fi;
       printf '%s' '{{ ad_join_password | b64encode }}' | base64 -d | realm join -U '{{ ad_join_user }}' '{{ ad_domain_name }}'
     guest_exec_no_log: true
+  when: join_ad | bool
+
+- name: AD join - verify realm membership
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Verify Active Directory domain join"
+    guest_exec_command: >-
+      realm list -a | grep -iq '^domain-name:\s*{{ ad_domain_name | lower }}$'
   when: join_ad | bool
 
 - name: AD join - enable mkhomedir in PAM
@@ -792,13 +813,33 @@
   vars:
     guest_exec_name: "Configure SSSD"
     guest_exec_command: >-
-      if grep -q '^use_fully_qualified_names' /etc/sssd/sssd.conf; then
-        sed -i 's/^use_fully_qualified_names.*/use_fully_qualified_names = False/' /etc/sssd/sssd.conf;
+      if [ ! -s /etc/sssd/sssd.conf ]; then
+        echo "/etc/sssd/sssd.conf is missing or empty" >&2; exit 1;
+      fi;
+      if ! grep -q '^\[domain/' /etc/sssd/sssd.conf; then
+        echo "/etc/sssd/sssd.conf has no [domain/*] section" >&2; exit 1;
+      fi;
+      if grep -Eq '^[[:space:]]*use_fully_qualified_names[[:space:]]*=' /etc/sssd/sssd.conf; then
+        sed -i 's/^[[:space:]]*use_fully_qualified_names[[:space:]]*=.*/use_fully_qualified_names = False/' /etc/sssd/sssd.conf;
       else
-        printf '\nuse_fully_qualified_names = False\n' >> /etc/sssd/sssd.conf;
+        awk '{
+          print;
+          if (!done && $0 ~ /^\[domain\/.*\]$/) {
+            print "use_fully_qualified_names = False";
+            done=1;
+          }
+        }' /etc/sssd/sssd.conf > /tmp/sssd.conf.new &&
+        mv /tmp/sssd.conf.new /etc/sssd/sssd.conf;
       fi;
       chmod 600 /etc/sssd/sssd.conf;
       systemctl restart sssd
+  when: join_ad | bool
+
+- name: AD join - verify SSSD service is active
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Verify SSSD service"
+    guest_exec_command: "systemctl is-active --quiet sssd"
   when: join_ad | bool
 
 - name: AD join - configure sudo group

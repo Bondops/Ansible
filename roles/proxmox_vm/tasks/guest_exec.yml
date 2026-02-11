@@ -38,6 +38,8 @@
       )
       or
       (
+        (guest_exec_allow_missing_pid | default(false) | bool)
+        and
         (guest_exec_status_response.status | int == 500)
         and
         ('PID' in (guest_exec_status_response.json.message | default('')))
@@ -58,6 +60,8 @@
       )
       or
       (
+        (guest_exec_allow_missing_pid | default(false) | bool)
+        and
         (guest_exec_status_response.status | int == 500)
         and
         ('PID' in (guest_exec_status_response.json.message | default('')))
