@@ -29,23 +29,21 @@
   register: guest_exec_status_response
   until:
     - >-
-      {{
-        (
-          (guest_exec_status_response.status | int == 200)
-          and
-          (guest_exec_status_response.json.data.exited | default(false) | bool)
-          and
-          ((guest_exec_status_response.json.data.exitcode | default(1) | int) == 0)
-        )
-        or
-        (
-          (guest_exec_status_response.status | int == 500)
-          and
-          ('PID' in (guest_exec_status_response.json.message | default('')))
-          and
-          ('does not exist' in (guest_exec_status_response.json.message | default('')))
-        )
-      }}
+      (
+        (guest_exec_status_response.status | int == 200)
+        and
+        (guest_exec_status_response.json.data.exited | default(false) | bool)
+        and
+        ((guest_exec_status_response.json.data.exitcode | default(1) | int) == 0)
+      )
+      or
+      (
+        (guest_exec_status_response.status | int == 500)
+        and
+        ('PID' in (guest_exec_status_response.json.message | default('')))
+        and
+        ('does not exist' in (guest_exec_status_response.json.message | default('')))
+      )
   retries: "{{ guest_exec_retries | default(cloudinit_wait_retries) }}"
   delay: "{{ guest_exec_delay | default(cloudinit_wait_delay) }}"
   no_log: "{{ guest_exec_no_log | default(false) }}"
