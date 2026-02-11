@@ -42,7 +42,7 @@ vm_numa: true
 vm_firewall: false
 vm_mtu: 1
 vm_hotplug: "disk,network,usb,memory,cpu"
-vm_vga: "default"
+vm_vga: "std"
 
 # Internal defaults
 cloudinit_ciuser: "debian"
