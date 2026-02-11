@@ -774,6 +774,19 @@
     - root_password | length > 0
     - vm_guest_agent_ready | default(false)
 
+- name: Ensure guest hostname matches vm_name
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Set guest hostname"
+    guest_exec_command: >-
+      hostnamectl set-hostname '{{ vm_name }}';
+      if grep -q '^127\.0\.1\.1[[:space:]]' /etc/hosts; then
+        sed -i 's/^127\.0\.1\.1[[:space:]].*/127.0.1.1 {{ vm_name }}/' /etc/hosts;
+      else
+        printf '\n127.0.1.1 {{ vm_name }}\n' >> /etc/hosts;
+      fi
+  when: vm_guest_agent_ready | default(false)
+
 - name: AD join - install required packages
   ansible.builtin.include_tasks: guest_exec.yml
   vars:
@@ -856,6 +869,7 @@
   ansible.builtin.include_tasks: guest_exec.yml
   vars:
     guest_exec_name: "Configure SSSD"
+    guest_exec_allow_missing_pid: true
     guest_exec_command: >-
       if [ ! -s /etc/sssd/sssd.conf ]; then
         echo "/etc/sssd/sssd.conf is missing or empty" >&2; exit 1;
@@ -883,6 +897,7 @@
   ansible.builtin.include_tasks: guest_exec.yml
   vars:
     guest_exec_name: "Verify SSSD service"
+    guest_exec_allow_missing_pid: true
     guest_exec_command: "systemctl is-active --quiet sssd"
   when: join_ad | bool
 
