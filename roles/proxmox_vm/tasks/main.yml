@@ -823,6 +823,9 @@
   ansible.builtin.include_tasks: guest_exec.yml
   vars:
     guest_exec_name: "Join Active Directory domain"
+    guest_exec_retries: 180
+    guest_exec_delay: 5
+    guest_exec_allow_missing_pid: true
     guest_exec_command: >-
       if realm list -a | grep -iq '^domain-name:\s*{{ ad_domain_name | lower }}$'; then
         exit 0;
