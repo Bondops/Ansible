@@ -13,6 +13,9 @@ network_bridge: "vmbr1"
 vlan_tag: 10
 ip_mode: "dhcp"             # dhcp | static | phpipam
 root_password: ""           # optional, if set cloud-init user becomes root
+create_admin_user: false    # optional, create local sudo user
+admin_username: ""          # required when create_admin_user=true
+admin_password: ""          # required when create_admin_user=true
 wait_for_cloudinit: true    # wait for cloud-init status --wait via qemu guest agent
 join_ad: false
 ad_domain_name: ""          # required when join_ad=true

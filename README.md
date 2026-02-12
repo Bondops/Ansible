@@ -15,6 +15,9 @@ Creates a VM in Proxmox from a Debian 13 template with these runtime fields:
 - `vm_id` (default `auto`, can be overridden)
 - `ip_mode` (`dhcp`, `static`, `phpipam`)
 - `root_password` (optional; if set, cloud-init login user is set to `root`)
+- `create_admin_user` (optional; creates local user with sudo rights)
+- `admin_username` (required when `create_admin_user=true`)
+- `admin_password` (required when `create_admin_user=true`)
 - `wait_for_cloudinit` (default `true`; waits for first-boot cloud-init to finish)
 - `cloudinit_user_data_snippet` (optional pre-created Proxmox `cicustom` snippet)
 - `join_ad` (default `false`)
@@ -43,6 +46,7 @@ Fixed VM config (not user-editable in form):
 - hotplug: `disk,network,usb,memory,cpu`
 - qemu guest agent can be auto-installed on first boot if `cloudinit_user_data_snippet` is set
 - when `join_ad=true`, AD SSH and SUDO groups are always configured (`SYS-<hostname>-SSH@domain` and `SYS-<hostname>-SUDO@domain`)
+- when `create_admin_user=true`, local user is created/updated and added to `sudo` group
 
 ## Prerequisites
 
