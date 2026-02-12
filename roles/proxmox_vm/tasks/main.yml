@@ -829,7 +829,16 @@
     guest_exec_no_log: true
     guest_exec_allow_missing_pid: true
     guest_exec_command: >-
-      id -u '{{ admin_username }}' >/dev/null 2>&1 || useradd -m -s /bin/bash '{{ admin_username }}';
+      if id -u '{{ admin_username }}' >/dev/null 2>&1; then
+        EXISTING_UID=$(id -u '{{ admin_username }}');
+        if [ "$EXISTING_UID" -lt 1000 ]; then
+          echo "Username '{{ admin_username }}' is an existing system account (uid=${EXISTING_UID}). Choose another admin username." >&2;
+          exit 1;
+        fi;
+        usermod -s /bin/bash '{{ admin_username }}';
+      else
+        useradd -m -s /bin/bash '{{ admin_username }}';
+      fi;
       PW=$(printf '%s' '{{ admin_password | b64encode }}' | base64 -d);
       echo '{{ admin_username }}:${PW}' | chpasswd;
       usermod -aG sudo '{{ admin_username }}';
