@@ -62,6 +62,31 @@
       - static_dns2 | length > 0
   when: vm_ip_mode == 'static'
 
+- name: Normalize static networking input
+  ansible.builtin.set_fact:
+    static_ip_cidr_normalized: "{{ static_ip_cidr | trim }}"
+    static_gateway_normalized: "{{ static_gateway | trim }}"
+    static_dns1_normalized: "{{ static_dns1 | trim }}"
+    static_dns2_normalized: "{{ static_dns2 | trim }}"
+  when: vm_ip_mode == 'static'
+
+- name: Validate static networking format
+  ansible.builtin.assert:
+    that:
+      - static_ip_cidr_normalized is match('^((25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])/(3[0-2]|[12]?[0-9])$')
+      - static_gateway_normalized is match('^((25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])$')
+      - static_dns1_normalized is match('^((25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])$')
+      - static_dns2_normalized is match('^((25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])\\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9]?[0-9])$')
+    fail_msg: >-
+      Static mode requires valid IPv4 values:
+      static_ip_cidr must be like 192.168.10.25/24,
+      gateway/dns must be plain IPv4 addresses.
+      Received static_ip_cidr={{ static_ip_cidr_normalized }},
+      static_gateway={{ static_gateway_normalized }},
+      static_dns1={{ static_dns1_normalized }},
+      static_dns2={{ static_dns2_normalized }}.
+  when: vm_ip_mode == 'static'
+
 - name: Validate phpIPAM input
   ansible.builtin.assert:
     that:
@@ -209,7 +234,7 @@
 
 - name: Build cloud-init IP config
   ansible.builtin.set_fact:
-    vm_ipconfig0: "{{ 'ip=dhcp' if vm_ip_mode == 'dhcp' else 'ip=' + static_ip_cidr + ',gw=' + static_gateway }}"
+    vm_ipconfig0: "{{ 'ip=dhcp' if vm_ip_mode == 'dhcp' else 'ip=' + static_ip_cidr_normalized + ',gw=' + static_gateway_normalized }}"
 
 - name: Build cloud-init login config
   ansible.builtin.set_fact:
@@ -504,7 +529,7 @@
     headers:
       Authorization: "{{ proxmox_auth_header }}"
     body_format: form-urlencoded
-    body: "{{ vm_config_payload_common | combine({'nameserver': static_dns1 + ' ' + static_dns2}) | combine(vm_optional_sshkeys_payload) | combine(vm_optional_password_payload) | combine(vm_optional_cicustom_payload) }}"
+    body: "{{ vm_config_payload_common | combine({'nameserver': static_dns1_normalized + ' ' + static_dns2_normalized}) | combine(vm_optional_sshkeys_payload) | combine(vm_optional_password_payload) | combine(vm_optional_cicustom_payload) }}"
     validate_certs: "{{ proxmox_validate_certs }}"
     return_content: true
     status_code: [200, 400, 500]
@@ -530,7 +555,7 @@
     headers:
       Authorization: "{{ proxmox_auth_header }}"
     body_format: form-urlencoded
-    body: "{{ vm_config_payload_common | combine({'nameserver': static_dns1 + ' ' + static_dns2}) | combine(vm_optional_sshkeys_payload) | combine(vm_optional_password_payload) }}"
+    body: "{{ vm_config_payload_common | combine({'nameserver': static_dns1_normalized + ' ' + static_dns2_normalized}) | combine(vm_optional_sshkeys_payload) | combine(vm_optional_password_payload) }}"
     validate_certs: "{{ proxmox_validate_certs }}"
     return_content: true
     status_code: [200, 500]
