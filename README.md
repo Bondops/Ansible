@@ -48,6 +48,8 @@ Fixed VM config (not user-editable in form):
 - when `join_ad=true`, AD SSH and SUDO groups are always configured (`SYS-<hostname>-SSH@domain` and `SYS-<hostname>-SUDO@domain`)
 - when `create_admin_user=true`, local user is created/updated and added to `sudo` group
   - username must not already be a system account (uid < 1000), e.g. `mail`
+- if both `admin_username` and `admin_password` are provided, local admin creation is auto-enabled
+- guest timezone/keymap are set to `Europe/Copenhagen` and `dk`
 
 ## Prerequisites
 

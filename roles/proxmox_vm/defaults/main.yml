@@ -46,6 +46,8 @@ vm_firewall: false
 vm_mtu: 1
 vm_hotplug: "disk,network,usb,memory,cpu"
 vm_vga: "std"
+vm_timezone: "Europe/Copenhagen"
+vm_console_keymap: "dk"
 
 # Internal defaults
 cloudinit_ciuser: "debian"

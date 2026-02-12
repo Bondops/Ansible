@@ -34,6 +34,15 @@
     fail_msg: "When join_ad=true you must set ad_domain_name, ad_join_user and ad_join_password."
   when: join_ad | bool
 
+- name: Resolve local admin creation mode
+  ansible.builtin.set_fact:
+    create_admin_user_effective: >-
+      {{
+        (create_admin_user | bool)
+        or
+        ((admin_username | default('') | length > 0) and (admin_password | default('') | length > 0))
+      }}
+
 - name: Validate local admin user input
   ansible.builtin.assert:
     that:
@@ -42,7 +51,7 @@
       - admin_username != 'root'
       - admin_username is match('^[a-z_][a-z0-9_-]{0,31}$')
     fail_msg: "When create_admin_user=true you must set admin_username/admin_password and use a valid Linux username."
-  when: create_admin_user | bool
+  when: create_admin_user_effective | bool
 
 - name: Dry-run notice
   ansible.builtin.debug:
@@ -822,6 +831,18 @@
       fi
   when: vm_guest_agent_ready | default(false)
 
+- name: Ensure guest timezone and keyboard layout
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Set timezone and keyboard layout"
+    guest_exec_allow_missing_pid: true
+    guest_exec_command: >-
+      timedatectl set-timezone '{{ vm_timezone }}';
+      if command -v localectl >/dev/null 2>&1; then
+        localectl set-keymap '{{ vm_console_keymap }}' || true;
+      fi
+  when: vm_guest_agent_ready | default(false)
+
 - name: Ensure local admin user exists with sudo rights
   ansible.builtin.include_tasks: guest_exec.yml
   vars:
@@ -844,7 +865,7 @@
       usermod -aG sudo '{{ admin_username }}';
       passwd -u '{{ admin_username }}' >/dev/null 2>&1 || true
   when:
-    - create_admin_user | bool
+    - create_admin_user_effective | bool
     - vm_guest_agent_ready | default(false)
 
 - name: AD join - install required packages
@@ -989,7 +1010,8 @@
       - "Disk: {{ disk_size_gb }}G, CPU: {{ cpu_sockets }} sockets x {{ cpu_cores }} cores, RAM: {{ memory_mb }} MB"
       - "Network: bridge={{ network_bridge }}, vlan={{ vlan_tag }}, mode={{ vm_ip_mode }}"
       - "Cloud-init login user: {{ vm_effective_ciuser }}"
-      - "Local sudo user: {{ admin_username if create_admin_user | bool else 'not set' }}"
+      - "Timezone/Keymap: {{ vm_timezone }} / {{ vm_console_keymap }}"
+      - "Local sudo user: {{ admin_username if create_admin_user_effective | bool else 'not set' }}"
       - "Cloud-init initialization: {{ 'waited until done' if (vm_wait_for_cloudinit | bool and vm_guest_agent_ready | default(false)) else 'wait skipped/disabled' }}"
       - "Cloud-init custom snippet: {{ vm_cloudinit_cicustom_value if vm_cloudinit_snippet_enabled else 'not set' }}"
       - "AD join: {{ 'completed for ' + ad_domain_name if join_ad | bool else 'disabled' }}"
