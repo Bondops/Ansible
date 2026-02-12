@@ -46,6 +46,7 @@ vm_firewall: false
 vm_mtu: 1
 vm_hotplug: "disk,network,usb,memory,cpu"
 vm_vga: "std"
+vm_keyboard_layout: "da"
 vm_timezone: "Europe/Copenhagen"
 vm_console_keymap: "dk"
 

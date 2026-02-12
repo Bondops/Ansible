@@ -50,6 +50,7 @@ Fixed VM config (not user-editable in form):
   - username must not already be a system account (uid < 1000), e.g. `mail`
 - if both `admin_username` and `admin_password` are provided, local admin creation is auto-enabled
 - guest timezone/keymap are set to `Europe/Copenhagen` and `dk`
+  - Proxmox VM keyboard option is also set to `da` for console mapping
 
 ## Prerequisites
 
