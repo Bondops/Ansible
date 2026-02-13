@@ -910,6 +910,7 @@
   ansible.builtin.include_tasks: guest_exec.yml
   vars:
     guest_exec_name: "Verify keyboard layout"
+    guest_exec_allow_missing_pid: true
     guest_exec_command: >-
       grep -Eq '^XKBLAYOUT="{{ vm_console_keymap }}"$' /etc/default/keyboard &&
       (
