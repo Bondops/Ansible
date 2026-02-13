@@ -902,7 +902,7 @@
         useradd -m -s /bin/bash '{{ admin_username }}';
       fi;
       PW=$(printf '%s' '{{ admin_password | b64encode }}' | base64 -d);
-      echo '{{ admin_username }}:${PW}' | chpasswd;
+      printf '%s:%s\n' '{{ admin_username }}' "$PW" | chpasswd;
       usermod -aG sudo '{{ admin_username }}';
       passwd -u '{{ admin_username }}' >/dev/null 2>&1 || true
   when:
