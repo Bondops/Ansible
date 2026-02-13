@@ -73,11 +73,24 @@
 
 - name: Normalize static networking input
   ansible.builtin.set_fact:
-    static_ip_cidr_normalized: "{{ static_ip_cidr | trim }}"
+    static_ip_cidr_input: "{{ static_ip_cidr | trim }}"
+    static_ip_cidr_normalized: >-
+      {{
+        (static_ip_cidr | trim)
+        if ((static_ip_cidr | trim) is search('/'))
+        else ((static_ip_cidr | trim) + '/24')
+      }}
     static_gateway_normalized: "{{ static_gateway | trim }}"
     static_dns1_normalized: "{{ static_dns1 | trim }}"
     static_dns2_normalized: "{{ static_dns2 | trim }}"
   when: vm_ip_mode == 'static'
+
+- name: Inform about auto-added /24 for static_ip_cidr
+  ansible.builtin.debug:
+    msg: "static_ip_cidr had no CIDR suffix. Automatically using {{ static_ip_cidr_normalized }}."
+  when:
+    - vm_ip_mode == 'static'
+    - static_ip_cidr_input is not search('/')
 
 - name: Validate static networking format
   ansible.builtin.assert:
@@ -89,6 +102,7 @@
     fail_msg: >-
       Static mode requires valid IPv4 values:
       static_ip_cidr must be like 192.168.10.25/24,
+      if /mask is omitted, /24 is auto-added.
       gateway/dns must be plain IPv4 addresses.
       Received static_ip_cidr={{ static_ip_cidr_normalized }},
       static_gateway={{ static_gateway_normalized }},
@@ -899,9 +913,22 @@
   ansible.builtin.include_tasks: guest_exec.yml
   vars:
     guest_exec_name: "Verify local admin user"
+    guest_exec_allow_missing_pid: true
     guest_exec_command: >-
       id -u '{{ admin_username }}' >/dev/null 2>&1 &&
       id -nG '{{ admin_username }}' | tr ' ' '\n' | grep -qx 'sudo'
+  when:
+    - create_admin_user_effective | bool
+    - vm_guest_agent_ready | default(false)
+
+- name: Verify local admin shell and password status
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Verify local admin login properties"
+    guest_exec_allow_missing_pid: true
+    guest_exec_command: >-
+      getent passwd '{{ admin_username }}' | awk -F: '{ exit ($7 == "/bin/bash" ? 0 : 1) }' &&
+      passwd -S '{{ admin_username }}' | awk '{ exit ($2 == "P" ? 0 : 1) }'
   when:
     - create_admin_user_effective | bool
     - vm_guest_agent_ready | default(false)
@@ -1064,6 +1091,7 @@
       - "Cloud-init login user: {{ vm_effective_ciuser }}"
       - "Timezone/Keymap: {{ vm_timezone }} / {{ vm_console_keymap }}"
       - "Local sudo user: {{ admin_username if create_admin_user_effective | bool else 'not set' }}"
+      - "Local admin login: {{ 'verified' if create_admin_user_effective | bool else 'not set' }}"
       - "Cloud-init initialization: {{ 'waited until done' if (vm_wait_for_cloudinit | bool and vm_guest_agent_ready | default(false)) else 'wait skipped/disabled' }}"
       - "Cloud-init custom snippet: {{ vm_cloudinit_cicustom_value if vm_cloudinit_snippet_enabled else 'not set' }}"
       - "AD join: {{ 'completed for ' + ad_domain_name if join_ad | bool else 'disabled' }}"
