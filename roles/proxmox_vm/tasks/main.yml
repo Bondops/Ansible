@@ -836,6 +836,7 @@
   ansible.builtin.include_tasks: guest_exec.yml
   vars:
     guest_exec_name: "Set timezone and keyboard layout"
+    guest_exec_allow_missing_pid: true
     guest_exec_command: |-
       export DEBIAN_FRONTEND=noninteractive;
       apt-get update >/dev/null 2>&1 || true;
@@ -859,6 +860,15 @@
       if command -v loadkeys >/dev/null 2>&1; then
         loadkeys '{{ vm_console_keymap }}';
       fi
+  when: vm_guest_agent_ready | default(false)
+
+- name: Verify guest timezone
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Verify timezone"
+    guest_exec_allow_missing_pid: true
+    guest_exec_command: >-
+      timedatectl show --property=Timezone --value | grep -qx '{{ vm_timezone }}'
   when: vm_guest_agent_ready | default(false)
 
 - name: Ensure local admin user exists with sudo rights
