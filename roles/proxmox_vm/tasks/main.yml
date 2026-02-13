@@ -836,18 +836,28 @@
   ansible.builtin.include_tasks: guest_exec.yml
   vars:
     guest_exec_name: "Set timezone and keyboard layout"
-    guest_exec_command: >-
+    guest_exec_command: |-
+      export DEBIAN_FRONTEND=noninteractive;
+      apt-get update >/dev/null 2>&1 || true;
+      apt-get install -y keyboard-configuration console-setup kbd >/dev/null 2>&1;
       timedatectl set-timezone '{{ vm_timezone }}';
+      cat > /etc/default/keyboard <<'EOF'
+      XKBMODEL="pc105"
+      XKBLAYOUT="{{ vm_console_keymap }}"
+      XKBVARIANT=""
+      XKBOPTIONS=""
+      BACKSPACE="guess"
+      EOF
+      dpkg-reconfigure -f noninteractive keyboard-configuration >/dev/null 2>&1 || true;
       if command -v localectl >/dev/null 2>&1; then
-        localectl set-keymap '{{ vm_console_keymap }}' || true;
-      fi;
-      if [ -f /etc/default/keyboard ]; then
-        sed -i 's/^XKBLAYOUT=.*/XKBLAYOUT="{{ vm_console_keymap }}"/' /etc/default/keyboard;
-      else
-        printf 'XKBMODEL="pc105"\nXKBLAYOUT="{{ vm_console_keymap }}"\nXKBVARIANT=""\nXKBOPTIONS=""\n' > /etc/default/keyboard;
+        localectl set-keymap '{{ vm_console_keymap }}';
+        localectl set-x11-keymap '{{ vm_console_keymap }}';
       fi;
       if command -v setupcon >/dev/null 2>&1; then
-        setupcon --force >/dev/null 2>&1 || true;
+        setupcon --force >/dev/null 2>&1;
+      fi;
+      if command -v loadkeys >/dev/null 2>&1; then
+        loadkeys '{{ vm_console_keymap }}';
       fi
   when: vm_guest_agent_ready | default(false)
 
@@ -891,7 +901,12 @@
   vars:
     guest_exec_name: "Verify keyboard layout"
     guest_exec_command: >-
-      grep -Eq '^XKBLAYOUT="{{ vm_console_keymap }}"$' /etc/default/keyboard
+      grep -Eq '^XKBLAYOUT="{{ vm_console_keymap }}"$' /etc/default/keyboard &&
+      (
+        localectl status 2>/dev/null | grep -Eq 'VC Keymap:[[:space:]]*{{ vm_console_keymap }}'
+        ||
+        dumpkeys 2>/dev/null | head -n 1 >/dev/null
+      )
   when: vm_guest_agent_ready | default(false)
 
 - name: AD join - install required packages
