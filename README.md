@@ -51,6 +51,7 @@ Fixed VM config (not user-editable in form):
 - if both `admin_username` and `admin_password` are provided, local admin creation is auto-enabled
 - guest timezone/keymap are set to `Europe/Copenhagen` and `dk`
   - Proxmox VM keyboard option is also set to `da` for console mapping
+- OpenSSH server is installed and enabled; password authentication is enabled for initial access
 
 ## Prerequisites
 

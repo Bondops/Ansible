@@ -885,6 +885,38 @@
       timedatectl show --property=Timezone --value | grep -qx '{{ vm_timezone }}'
   when: vm_guest_agent_ready | default(false)
 
+- name: Ensure SSH server is installed and password login is enabled
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Configure SSH server"
+    guest_exec_allow_missing_pid: true
+    guest_exec_command: |-
+      export DEBIAN_FRONTEND=noninteractive;
+      apt-get update >/dev/null 2>&1 || true;
+      apt-get install -y openssh-server >/dev/null 2>&1;
+      mkdir -p /etc/ssh/sshd_config.d;
+      cat > /etc/ssh/sshd_config.d/99-semaphore-password-auth.conf <<'EOF'
+      PasswordAuthentication yes
+      KbdInteractiveAuthentication no
+      ChallengeResponseAuthentication no
+      UsePAM yes
+      EOF
+      sshd -t;
+      systemctl enable --now ssh;
+      systemctl restart ssh
+  when: vm_guest_agent_ready | default(false)
+
+- name: Verify SSH server state
+  ansible.builtin.include_tasks: guest_exec.yml
+  vars:
+    guest_exec_name: "Verify SSH server"
+    guest_exec_allow_missing_pid: true
+    guest_exec_command: >-
+      systemctl is-active --quiet ssh &&
+      sshd -t &&
+      sshd -T | grep -q '^passwordauthentication yes'
+  when: vm_guest_agent_ready | default(false)
+
 - name: Ensure local admin user exists with sudo rights
   ansible.builtin.include_tasks: guest_exec.yml
   vars:
@@ -1090,6 +1122,7 @@
       - "Network: bridge={{ network_bridge }}, vlan={{ vlan_tag }}, mode={{ vm_ip_mode }}"
       - "Cloud-init login user: {{ vm_effective_ciuser }}"
       - "Timezone/Keymap: {{ vm_timezone }} / {{ vm_console_keymap }}"
+      - "SSH server: installed and password auth enabled"
       - "Local sudo user: {{ admin_username if create_admin_user_effective | bool else 'not set' }}"
       - "Local admin login: {{ 'verified' if create_admin_user_effective | bool else 'not set' }}"
       - "Cloud-init initialization: {{ 'waited until done' if (vm_wait_for_cloudinit | bool and vm_guest_agent_ready | default(false)) else 'wait skipped/disabled' }}"
