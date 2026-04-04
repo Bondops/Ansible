@@ -144,7 +144,7 @@
             )
             if (semaphore_target_asset_name | trim | length > 0)
             else ''
-          }}        
+          | trim }}
 
     - name: Resolve target Semaphore package URL
       ansible.builtin.set_fact:
@@ -216,6 +216,7 @@
           - apt-get
           - update
       changed_when: true
+      check_mode: false
       when: (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
 
     - name: Ensure ca-certificates package is installed
@@ -228,6 +229,7 @@
           - -y
           - ca-certificates
       changed_when: true
+      check_mode: false
 
     - name: Download requested Semaphore release package
       ansible.builtin.command:
@@ -239,6 +241,7 @@
           - "{{ semaphore_deb_tmp_path }}"
           - "{{ semaphore_target_deb_url }}"
       changed_when: true
+      check_mode: false
       when: (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
 
     - name: Install requested Semaphore release package
@@ -252,6 +255,7 @@
           - "{{ semaphore_deb_tmp_path }}"
       register: semaphore_install
       changed_when: true
+      check_mode: false
       when: (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
 
     - name: Restart Semaphore service after package install
@@ -263,6 +267,7 @@
           - restart
           - semaphore
       changed_when: true
+      check_mode: false
       when: (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
 
     - name: Wait for Semaphore UI port to accept connections
@@ -270,6 +275,7 @@
         host: 127.0.0.1
         port: "{{ semaphore_ui_port }}"
         timeout: 60
+      check_mode: false
 
     - name: Read installed Semaphore version
       ansible.builtin.command:
@@ -288,3 +294,4 @@
           - "{{ (semaphore_version_cmd.stdout_lines | default(['Semaphore version unknown']))[0] }}"
           - "Semaphore target version: {{ semaphore_target_version }}"
           - "Semaphore backups: {{ semaphore_backup_dir }}"
+          - "Check mode: {{ ansible_check_mode }}"
