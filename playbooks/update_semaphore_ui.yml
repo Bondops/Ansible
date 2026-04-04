@@ -291,19 +291,17 @@
         argv:
           - sudo
           - -n
-          - systemctl
-          - restart
-          - semaphore
+          - bash
+          - -lc
+          - "nohup sh -c 'sleep 2 && systemctl restart semaphore' >/dev/null 2>&1 &"
       changed_when: true
       when:
         - not ansible_check_mode
         - semaphore_update_needed
 
-    - name: Wait for Semaphore UI port to accept connections
-      ansible.builtin.wait_for:
-        host: 127.0.0.1
-        port: "{{ semaphore_ui_port }}"
-        timeout: 60
+    - name: Inform about deferred Semaphore restart
+      ansible.builtin.debug:
+        msg: "Semaphore restart scheduled in 2 seconds."
       when:
         - not ansible_check_mode
         - semaphore_update_needed
