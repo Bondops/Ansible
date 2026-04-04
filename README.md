@@ -172,7 +172,9 @@ This update playbook matches the Debian 13 setup described here:
 - Semaphore installed from `.deb`
 - Semaphore managed by `systemd`
 - Playbook runs on `localhost` with the existing local connection in inventory
-- Playbook expects the Semaphore task to execute directly as `root`
+- Local execution uses the actual Semaphore process user, not `ansible_user` from inventory
+- If that user is not `root`, it must have passwordless `sudo`
+- Detection of user/version still runs in check mode (`dry-run`)
 - UI health check verifies that port `3000` comes back after restart
 - Backup is taken before update of:
   - `/home/ans/config.json`

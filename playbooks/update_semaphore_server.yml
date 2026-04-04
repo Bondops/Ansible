@@ -20,6 +20,7 @@
       ansible.builtin.command: id -un
       register: execution_user_cmd
       changed_when: false
+      check_mode: false
 
     - name: Normalize update flags
       ansible.builtin.set_fact:
@@ -38,6 +39,7 @@
       register: sudo_check_cmd
       changed_when: false
       failed_when: false
+      check_mode: false
       when: execution_user != 'root'
 
     - name: Require root or passwordless sudo on localhost
@@ -56,6 +58,7 @@
       register: semaphore_version_before_cmd
       changed_when: false
       failed_when: false
+      check_mode: false
       when: update_semaphore_enabled
 
     - name: Read latest Semaphore release from GitHub
@@ -67,6 +70,7 @@
           Accept: application/vnd.github+json
           X-GitHub-Api-Version: "2022-11-28"
       register: semaphore_release_api_response
+      check_mode: false
       when: update_semaphore_enabled
 
     - name: Resolve installed and target Semaphore versions
@@ -148,6 +152,7 @@
         executable: /bin/bash
       register: ansible_pipx_stat
       changed_when: false
+      check_mode: false
       when: update_ansible_enabled
 
     - name: Fail when pipx executable is missing
@@ -214,6 +219,7 @@
         executable: /bin/bash
       register: ansible_version_cmd
       changed_when: false
+      check_mode: false
       when: update_ansible_enabled
 
     - name: Read installed Semaphore version
@@ -223,11 +229,13 @@
           - version
       register: semaphore_version_cmd
       changed_when: false
+      check_mode: false
       when: update_semaphore_enabled
 
     - name: Output update summary
       ansible.builtin.debug:
         msg:
+          - "Execution user: {{ execution_user }}"
           - >-
             Ansible update: {{
               (ansible_version_cmd.stdout_lines | default(['not requested']))[0]
