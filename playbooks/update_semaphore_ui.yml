@@ -116,7 +116,9 @@
             (
               semaphore_release_api_response.json.assets
               | default([])
-              | selectattr('name', 'search', 'linux_amd64\\.deb$')
+              | selectattr('name', 'search', 'linux')
+              | selectattr('name', 'search', 'amd64')
+              | selectattr('name', 'search', '\\.deb$')
               | map(attribute='name')
               | list
               | first
@@ -127,7 +129,9 @@
             (
               semaphore_release_api_response.json.assets
               | default([])
-              | selectattr('name', 'search', 'linux_amd64\\.deb$')
+              | selectattr('name', 'search', 'linux')
+              | selectattr('name', 'search', 'amd64')
+              | selectattr('name', 'search', '\\.deb$')
               | map(attribute='browser_download_url')
               | list
               | first
@@ -153,6 +157,12 @@
     - name: Resolve target Semaphore package URL
       ansible.builtin.set_fact:
         semaphore_target_deb_url: "{{ semaphore_target_asset_url }}"
+
+    - name: Debug available Semaphore release assets when detection fails
+      ansible.builtin.debug:
+        msg: "{{ semaphore_release_api_response.json.assets | default([]) | map(attribute='name') | list }}"
+      when:
+        - semaphore_target_deb_url | length == 0 or semaphore_target_version | length == 0
 
     - name: Require detectable Semaphore release asset and version
       ansible.builtin.assert:
