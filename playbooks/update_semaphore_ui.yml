@@ -139,9 +139,10 @@
           {{
             (
               semaphore_target_asset_name
-              | regex_search('[0-9]+\\.[0-9]+\\.[0-9]+')
+              | regex_replace('^.*?([0-9]+\\.[0-9]+\\.[0-9]+).*$','\\1')
             )
-            | default('', true)
+            if (semaphore_target_asset_name | length > 0)
+            else ''
           }}
 
     - name: Resolve target Semaphore package URL
