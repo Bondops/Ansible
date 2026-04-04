@@ -72,22 +72,27 @@
       check_mode: false
 
     - name: Read Semaphore config JSON
-      ansible.builtin.slurp:
-        path: "{{ semaphore_config_path }}"
-      register: semaphore_config_slurp
-      become: true
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - cat
+          - "{{ semaphore_config_path }}"
+      register: semaphore_config_cat_cmd
+      changed_when: false
+      check_mode: false
 
     - name: Resolve Semaphore database path
       ansible.builtin.set_fact:
         semaphore_db_path: >-
           {{
             (
-              (semaphore_config_slurp.content | b64decode | from_json).db
-              if ((semaphore_config_slurp.content | b64decode | from_json).db is defined and ((semaphore_config_slurp.content | b64decode | from_json).db is string))
+              (semaphore_config_cat_cmd.stdout | from_json).db
+              if ((semaphore_config_cat_cmd.stdout | from_json).db is defined and ((semaphore_config_cat_cmd.stdout | from_json).db is string))
               else
               (
-                (semaphore_config_slurp.content | b64decode | from_json).bolt.path
-                if ((semaphore_config_slurp.content | b64decode | from_json).bolt is defined and (semaphore_config_slurp.content | b64decode | from_json).bolt.path is defined)
+                (semaphore_config_cat_cmd.stdout | from_json).bolt.path
+                if ((semaphore_config_cat_cmd.stdout | from_json).bolt is defined and (semaphore_config_cat_cmd.stdout | from_json).bolt.path is defined)
                 else '/var/lib/semaphore/semaphore.db'
               )
             )
@@ -127,11 +132,16 @@
           }}
 
     - name: Ensure Semaphore backup directory exists
-      ansible.builtin.file:
-        path: "{{ semaphore_backup_dir }}"
-        state: directory
-        mode: "0755"
-      become: true
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - install
+          - -d
+          - -m
+          - "0755"
+          - "{{ semaphore_backup_dir }}"
+      changed_when: true
       check_mode: false
 
     - name: Check Semaphore files for backup
@@ -146,11 +156,12 @@
     - name: Backup Semaphore files before update
       ansible.builtin.command:
         argv:
+          - sudo
+          - -n
           - cp
           - -a
           - "{{ item.stat.path }}"
           - "{{ semaphore_backup_dir }}/{{ item.stat.path | basename }}.{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}.bak"
-      become: true
       loop: "{{ semaphore_backup_stats.results }}"
       changed_when: true
       check_mode: false
@@ -166,35 +177,60 @@
 
   tasks:
     - name: Ensure base packages required for Semaphore update are installed
-      ansible.builtin.apt:
-        name:
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - apt-get
+          - update
+      changed_when: true
+      when: (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
+
+    - name: Ensure ca-certificates package is installed
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - apt-get
+          - install
+          - -y
           - ca-certificates
-        state: present
-        update_cache: true
-      become: true
+      changed_when: true
 
     - name: Download requested Semaphore release package
-      ansible.builtin.get_url:
-        url: "{{ semaphore_target_deb_url }}"
-        dest: "{{ semaphore_deb_tmp_path }}"
-        mode: "0644"
-      become: true
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - wget
+          - -O
+          - "{{ semaphore_deb_tmp_path }}"
+          - "{{ semaphore_target_deb_url }}"
+      changed_when: true
       when: (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
 
     - name: Install requested Semaphore release package
-      ansible.builtin.apt:
-        deb: "{{ semaphore_deb_tmp_path }}"
-        state: present
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - apt-get
+          - install
+          - -y
+          - "{{ semaphore_deb_tmp_path }}"
       register: semaphore_install
-      become: true
+      changed_when: true
       when: (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
 
     - name: Restart Semaphore service after package install
-      ansible.builtin.systemd:
-        name: semaphore
-        state: restarted
-        enabled: true
-      become: true
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - systemctl
+          - restart
+          - semaphore
+      changed_when: true
       when: (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
 
     - name: Wait for Semaphore UI port to accept connections
