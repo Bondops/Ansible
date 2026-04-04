@@ -148,19 +148,19 @@
 
     - name: Resolve target Semaphore package URL
       ansible.builtin.set_fact:
-        semaphore_target_deb_url: "{{ semaphore_target_asset_url | trim }}"
+        semaphore_target_deb_url: "{{ semaphore_target_asset_url | default('', true) | trim }}"
 
     - name: Debug available Semaphore release assets when detection fails
       ansible.builtin.debug:
         msg: "{{ semaphore_release_api_response.json.assets | default([]) | map(attribute='name') | list }}"
       when:
-        - semaphore_target_deb_url | length == 0 or semaphore_target_version | length == 0
+        - (semaphore_target_deb_url | default('', true) | length == 0) or (semaphore_target_version | default('', true) | length == 0)
 
     - name: Require detectable Semaphore release asset and version
       ansible.builtin.assert:
         that:
-          - semaphore_target_deb_url | length > 0
-          - semaphore_target_version | length > 0
+          - semaphore_target_deb_url | default('', true) | length > 0
+          - semaphore_target_version | default('', true) | length > 0
         fail_msg: "Could not detect latest Semaphore linux_amd64.deb release from GitHub."
 
     - name: Ensure Semaphore backup directory exists
