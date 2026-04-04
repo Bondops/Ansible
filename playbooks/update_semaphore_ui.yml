@@ -118,7 +118,7 @@
           {% set ns.value = asset.name %}
           {% endif %}
           {% endfor %}
-          {{ ns.value }}
+          {{ ns.value | trim }}
         semaphore_target_asset_url: >-
           {% set ns = namespace(value='') %}
           {% for asset in (semaphore_release_api_response.json.assets | default([])) %}
@@ -126,7 +126,7 @@
           {% set ns.value = asset.browser_download_url | default('') %}
           {% endif %}
           {% endfor %}
-          {{ ns.value }}
+          {{ ns.value | trim }}
 
     - name: Resolve installed and target Semaphore versions
       ansible.builtin.set_fact:
@@ -134,20 +134,21 @@
           {{
             (semaphore_version_before_cmd.stdout | default('') | regex_search('[0-9]+\\.[0-9]+\\.[0-9]+'))
             | default('', true)
+            | trim
           }}
         semaphore_target_version: >-
           {{
             (
-              semaphore_target_asset_name
-              | regex_replace('^.*?([0-9]+\\.[0-9]+\\.[0-9]+).*$','\\1')
+              (semaphore_target_asset_name | trim)
+              | regex_search('[0-9]+\\.[0-9]+\\.[0-9]+')
             )
-            if (semaphore_target_asset_name | length > 0)
+            if (semaphore_target_asset_name | trim | length > 0)
             else ''
-          }}
+          }}        
 
     - name: Resolve target Semaphore package URL
       ansible.builtin.set_fact:
-        semaphore_target_deb_url: "{{ semaphore_target_asset_url }}"
+        semaphore_target_deb_url: "{{ semaphore_target_asset_url | trim }}"
 
     - name: Debug available Semaphore release assets when detection fails
       ansible.builtin.debug:
