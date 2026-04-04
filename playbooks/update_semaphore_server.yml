@@ -16,10 +16,16 @@
     semaphore_release_api_url: https://api.github.com/repos/semaphoreui/semaphore/releases/latest
 
   pre_tasks:
+    - name: Detect effective execution user
+      ansible.builtin.command: id -un
+      register: execution_user_cmd
+      changed_when: false
+
     - name: Normalize update flags
       ansible.builtin.set_fact:
         update_ansible_enabled: "{{ update_ansible | bool }}"
         update_semaphore_enabled: "{{ update_semaphore | bool }}"
+        execution_user: "{{ execution_user_cmd.stdout | trim }}"
 
     - name: Validate selected update actions
       ansible.builtin.assert:
@@ -32,15 +38,15 @@
       register: sudo_check_cmd
       changed_when: false
       failed_when: false
-      when: ansible_facts['user_id'] != 'root'
+      when: execution_user != 'root'
 
     - name: Require root or passwordless sudo on localhost
       ansible.builtin.assert:
         that:
-          - ansible_facts['user_id'] == 'root' or sudo_check_cmd.rc == 0
+          - execution_user == 'root' or sudo_check_cmd.rc == 0
         fail_msg: >-
           This update playbook requires direct root or passwordless sudo.
-          Current execution user is {{ ansible_facts['user_id'] }}.
+          Current execution user is {{ execution_user }}.
 
     - name: Read installed Semaphore version before update
       ansible.builtin.command:
@@ -92,7 +98,7 @@
         path: "{{ semaphore_backup_dir }}"
         state: directory
         mode: "0750"
-      become: "{{ ansible_facts['user_id'] != 'root' }}"
+      become: true
       when: update_semaphore_enabled
 
     - name: Check Semaphore files for backup
@@ -111,7 +117,7 @@
         dest: "{{ semaphore_backup_dir }}/{{ item.stat.path | basename }}.{{ ansible_date_time.iso8601_basic_short }}.bak"
         remote_src: true
         mode: preserve
-      become: "{{ ansible_facts['user_id'] != 'root' }}"
+      become: true
       loop: "{{ semaphore_backup_stats.results }}"
       when:
         - update_semaphore_enabled
@@ -134,7 +140,7 @@
           - pipx
         state: present
         update_cache: true
-      become: "{{ ansible_facts['user_id'] != 'root' }}"
+      become: true
 
     - name: Discover pipx executable in PATH
       ansible.builtin.shell: command -v pipx
@@ -170,7 +176,7 @@
         url: "{{ semaphore_target_deb_url }}"
         dest: "{{ semaphore_deb_tmp_path }}"
         mode: "0644"
-      become: "{{ ansible_facts['user_id'] != 'root' }}"
+      become: true
       when:
         - update_semaphore_enabled
         - (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
@@ -180,7 +186,7 @@
         deb: "{{ semaphore_deb_tmp_path }}"
         state: present
       register: semaphore_install
-      become: "{{ ansible_facts['user_id'] != 'root' }}"
+      become: true
       when:
         - update_semaphore_enabled
         - (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
@@ -190,7 +196,7 @@
         name: semaphore
         state: restarted
         enabled: true
-      become: "{{ ansible_facts['user_id'] != 'root' }}"
+      become: true
       when:
         - update_semaphore_enabled
         - (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
