@@ -143,13 +143,15 @@
       register: semaphore_backup_stats
 
     - name: Backup Semaphore files before update
-      ansible.builtin.copy:
-        src: "{{ item.stat.path }}"
-        dest: "{{ semaphore_backup_dir }}/{{ item.stat.path | basename }}.{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}.bak"
-        remote_src: true
-        mode: preserve
+      ansible.builtin.command:
+        argv:
+          - cp
+          - -a
+          - "{{ item.stat.path }}"
+          - "{{ semaphore_backup_dir }}/{{ item.stat.path | basename }}.{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}.bak"
       become: true
       loop: "{{ semaphore_backup_stats.results }}"
+      changed_when: true
       when: item.stat.exists
 
     - name: Inform when requested Semaphore version is already installed
