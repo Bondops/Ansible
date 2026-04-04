@@ -1,40 +1,20 @@
 ---
 - name: Update Semaphore server components
-  hosts: semaphore_ui
+  hosts: localhost
   gather_facts: true
   become: true
   vars:
     update_ansible: true
     update_semaphore: true
-    ansible_pipx_user: root
     ansible_pipx_package: ansible
-    ansible_pipx_executable: >-
-      {{ '/root/.local/bin/pipx'
-         if ansible_pipx_user == 'root'
-         else '/home/' ~ ansible_pipx_user ~ '/.local/bin/pipx' }}
-    ansible_binary_path: >-
-      {{ '/root/.local/bin/ansible'
-         if ansible_pipx_user == 'root'
-         else '/home/' ~ ansible_pipx_user ~ '/.local/bin/ansible' }}
-    semaphore_release_version: ""
-    semaphore_deb_url: ""
     semaphore_deb_tmp_path: /tmp/semaphore_update.deb
-    semaphore_service_name: semaphore
     semaphore_binary_path: /usr/bin/semaphore
     semaphore_ui_port: 3000
     semaphore_config_path: /home/ans/config.json
     semaphore_db_path: /var/lib/semaphore/semaphore.db
     semaphore_service_unit_path: /etc/systemd/system/semaphore.service
     semaphore_backup_dir: /var/backups/semaphore
-    semaphore_target_deb_url: >-
-      {{
-        semaphore_deb_url
-        if (semaphore_deb_url | trim | length > 0)
-        else
-        'https://github.com/semaphoreui/semaphore/releases/download/v'
-        ~ semaphore_release_version ~ '/semaphore_'
-        ~ semaphore_release_version ~ '_linux_amd64.deb'
-      }}
+    semaphore_release_api_url: https://api.github.com/repos/semaphoreui/semaphore/releases/latest
 
   pre_tasks:
     - name: Validate selected update actions
@@ -42,15 +22,6 @@
         that:
           - update_ansible or update_semaphore
         fail_msg: "Enable at least one of update_ansible or update_semaphore."
-
-    - name: Validate Semaphore package source when Semaphore update is enabled
-      ansible.builtin.assert:
-        that:
-          - (semaphore_deb_url | trim | length > 0) or (semaphore_release_version | trim | length > 0)
-        fail_msg: >-
-          Set either semaphore_release_version or semaphore_deb_url for the
-          Semaphore release you want to install.
-      when: update_semaphore
 
     - name: Read installed Semaphore version before update
       ansible.builtin.command:
@@ -62,6 +33,17 @@
       failed_when: false
       when: update_semaphore
 
+    - name: Read latest Semaphore release from GitHub
+      ansible.builtin.uri:
+        url: "{{ semaphore_release_api_url }}"
+        method: GET
+        return_content: true
+        headers:
+          Accept: application/vnd.github+json
+          X-GitHub-Api-Version: "2022-11-28"
+      register: semaphore_release_api_response
+      when: update_semaphore
+
     - name: Resolve installed and target Semaphore versions
       ansible.builtin.set_fact:
         semaphore_installed_version: >-
@@ -71,11 +53,14 @@
           }}
         semaphore_target_version: >-
           {{
-            (
-              semaphore_release_version
-              if (semaphore_release_version | trim | length > 0)
-              else (semaphore_target_deb_url | regex_search('[0-9]+\\.[0-9]+\\.[0-9]+'))
-            ) | default('')
+            (semaphore_release_api_response.json.tag_name | default('') | regex_search('[0-9]+\\.[0-9]+\\.[0-9]+'))
+            | default('')
+          }}
+        semaphore_target_deb_url: >-
+          {{
+            'https://github.com/semaphoreui/semaphore/releases/download/v'
+            ~ semaphore_target_version ~ '/semaphore_'
+            ~ semaphore_target_version ~ '_linux_amd64.deb'
           }}
       when: update_semaphore
 
@@ -125,28 +110,29 @@
         state: present
         update_cache: true
 
-    - name: Check pipx executable exists
-      ansible.builtin.stat:
-        path: "{{ ansible_pipx_executable }}"
+    - name: Discover pipx executable in PATH
+      ansible.builtin.shell: command -v pipx
+      args:
+        executable: /bin/bash
       register: ansible_pipx_stat
+      changed_when: false
       when: update_ansible
 
     - name: Fail when pipx executable is missing
       ansible.builtin.assert:
         that:
-          - ansible_pipx_stat.stat.exists
+          - ansible_pipx_stat.rc == 0
+          - ansible_pipx_stat.stdout | trim | length > 0
         fail_msg: >-
-          pipx executable was not found at {{ ansible_pipx_executable }}.
-          Adjust ansible_pipx_user or ansible_pipx_executable for your installation.
+          pipx executable was not found in PATH on the Semaphore server.
       when: update_ansible
 
     - name: Upgrade Ansible installed with pipx
       ansible.builtin.command:
         argv:
-          - "{{ ansible_pipx_executable }}"
+          - "{{ ansible_pipx_stat.stdout | trim }}"
           - upgrade
           - "{{ ansible_pipx_package }}"
-      become_user: "{{ ansible_pipx_user }}"
       register: ansible_pipx_upgrade
       changed_when: >-
         'upgraded package' in (ansible_pipx_upgrade.stdout | lower) or
@@ -173,7 +159,7 @@
 
     - name: Restart Semaphore service after package install
       ansible.builtin.systemd:
-        name: "{{ semaphore_service_name }}"
+        name: semaphore
         state: restarted
         enabled: true
       when:
@@ -188,10 +174,9 @@
       when: update_semaphore
 
     - name: Read installed Ansible version
-      ansible.builtin.command:
-        argv:
-          - "{{ ansible_binary_path }}"
-          - --version
+      ansible.builtin.shell: command -v ansible && ansible --version
+      args:
+        executable: /bin/bash
       register: ansible_version_cmd
       changed_when: false
       when: update_ansible

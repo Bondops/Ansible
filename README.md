@@ -159,26 +159,25 @@ sed -i 's/\r$//' your-script.sh
   - for `root_password`, use a Survey variable of type `Secret` (or pass in Secrets)
 
 6. Optional update template for Semaphore server itself:
-- Add host/group `semaphore_ui` from `inventories/semaphore/hosts.yml`
 - Playbook: `playbooks/update_semaphore_server.yml`
 - Extra Variables default template:
   - use `semaphore/update-semaphore-vars.example.yml`
 - Runtime fields:
   - `update_ansible` (`true`/`false`)
   - `update_semaphore` (`true`/`false`)
-  - `ansible_pipx_user` (default `root`)
-  - `semaphore_release_version` (preferred; e.g. `2.16.99`)
-  - `semaphore_deb_url` (optional exact `.deb` release URL override)
+  - `semaphore_ui_port` (default `3000`)
 
 This update playbook matches the Debian 13 setup described here:
 - Ansible installed with `pipx`
 - Semaphore installed from `.deb`
 - Semaphore managed by `systemd`
+- Playbook runs on `localhost` with the existing local connection in inventory
 - UI health check verifies that port `3000` comes back after restart
 - Backup is taken before update of:
   - `/home/ans/config.json`
   - `/var/lib/semaphore/semaphore.db`
   - `/etc/systemd/system/semaphore.service`
+- Installed Semaphore version is compared to the latest GitHub release automatically
 
 ## Runtime behavior for `ip_mode`
 
