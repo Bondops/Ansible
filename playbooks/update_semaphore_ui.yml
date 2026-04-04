@@ -112,31 +112,21 @@
     - name: Resolve target Semaphore release asset
       ansible.builtin.set_fact:
         semaphore_target_asset_name: >-
-          {{
-            (
-              semaphore_release_api_response.json.assets
-              | default([])
-              | selectattr('name', 'search', 'linux')
-              | selectattr('name', 'search', 'amd64')
-              | selectattr('name', 'search', '\\.deb$')
-              | map(attribute='name')
-              | list
-              | first
-            ) | default('', true)
-          }}
+          {% set ns = namespace(value='') %}
+          {% for asset in (semaphore_release_api_response.json.assets | default([])) %}
+          {% if 'linux_amd64.deb' in (asset.name | default('')) and ns.value == '' %}
+          {% set ns.value = asset.name %}
+          {% endif %}
+          {% endfor %}
+          {{ ns.value }}
         semaphore_target_asset_url: >-
-          {{
-            (
-              semaphore_release_api_response.json.assets
-              | default([])
-              | selectattr('name', 'search', 'linux')
-              | selectattr('name', 'search', 'amd64')
-              | selectattr('name', 'search', '\\.deb$')
-              | map(attribute='browser_download_url')
-              | list
-              | first
-            ) | default('', true)
-          }}
+          {% set ns = namespace(value='') %}
+          {% for asset in (semaphore_release_api_response.json.assets | default([])) %}
+          {% if 'linux_amd64.deb' in (asset.name | default('')) and ns.value == '' %}
+          {% set ns.value = asset.browser_download_url | default('') %}
+          {% endif %}
+          {% endfor %}
+          {{ ns.value }}
 
     - name: Resolve installed and target Semaphore versions
       ansible.builtin.set_fact:
