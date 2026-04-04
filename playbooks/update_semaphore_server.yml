@@ -9,9 +9,6 @@
     semaphore_deb_tmp_path: /tmp/semaphore_update.deb
     semaphore_binary_path: /usr/bin/semaphore
     semaphore_ui_port: 3000
-    semaphore_config_path: /home/ans/config.json
-    semaphore_db_path: /var/lib/semaphore/semaphore.db
-    semaphore_service_unit_path: /etc/systemd/system/semaphore.service
     semaphore_backup_dir: /var/backups/semaphore
     semaphore_release_api_url: https://api.github.com/repos/semaphoreui/semaphore/releases/latest
 
@@ -59,6 +56,63 @@
       changed_when: false
       failed_when: false
       check_mode: false
+      when: update_semaphore_enabled
+
+    - name: Detect Semaphore service unit file path
+      ansible.builtin.command: systemctl show semaphore --property=FragmentPath --value
+      register: semaphore_fragment_path_cmd
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: update_semaphore_enabled
+
+    - name: Detect Semaphore ExecStart command
+      ansible.builtin.command: systemctl show semaphore --property=ExecStart --value
+      register: semaphore_execstart_cmd
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: update_semaphore_enabled
+
+    - name: Resolve Semaphore config and service file paths
+      ansible.builtin.set_fact:
+        semaphore_config_path: >-
+          {{
+            (semaphore_execstart_cmd.stdout | regex_search('--config[= ]([^ ;]+)', '\1') | first | default(''))
+          }}
+        semaphore_service_unit_path: "{{ semaphore_fragment_path_cmd.stdout | trim }}"
+      when: update_semaphore_enabled
+
+    - name: Require detectable Semaphore config path
+      ansible.builtin.assert:
+        that:
+          - semaphore_config_path | length > 0
+        fail_msg: "Could not detect Semaphore config path from systemd ExecStart."
+      when: update_semaphore_enabled
+
+    - name: Read Semaphore config JSON
+      ansible.builtin.slurp:
+        path: "{{ semaphore_config_path }}"
+      register: semaphore_config_slurp
+      become: true
+      when: update_semaphore_enabled
+
+    - name: Resolve Semaphore config data and database path
+      ansible.builtin.set_fact:
+        semaphore_config_json: "{{ semaphore_config_slurp.content | b64decode | from_json }}"
+        semaphore_db_path: >-
+          {{
+            (
+              (semaphore_config_slurp.content | b64decode | from_json).db
+              if ((semaphore_config_slurp.content | b64decode | from_json).db is defined and ((semaphore_config_slurp.content | b64decode | from_json).db is string))
+              else
+              (
+                (semaphore_config_slurp.content | b64decode | from_json).bolt.path
+                if ((semaphore_config_slurp.content | b64decode | from_json).bolt is defined and (semaphore_config_slurp.content | b64decode | from_json).bolt.path is defined)
+                else '/var/lib/semaphore/semaphore.db'
+              )
+            )
+          }}
       when: update_semaphore_enabled
 
     - name: Read latest Semaphore release from GitHub
@@ -146,30 +200,59 @@
         update_cache: true
       become: true
 
-    - name: Discover pipx executable in PATH
-      ansible.builtin.shell: command -v pipx
+    - name: Discover ansible executable in PATH
+      ansible.builtin.shell: command -v ansible
       args:
         executable: /bin/bash
-      register: ansible_pipx_stat
+      register: ansible_binary_path_cmd
       changed_when: false
       check_mode: false
       when: update_ansible_enabled
 
-    - name: Fail when pipx executable is missing
+    - name: Fail when ansible executable is missing
       ansible.builtin.assert:
         that:
-          - ansible_pipx_stat.rc == 0
-          - ansible_pipx_stat.stdout | trim | length > 0
+          - ansible_binary_path_cmd.rc == 0
+          - ansible_binary_path_cmd.stdout | trim | length > 0
         fail_msg: >-
-          pipx executable was not found in PATH on the Semaphore server.
+          ansible executable was not found in PATH on the Semaphore server.
+      when: update_ansible_enabled
+
+    - name: Detect ansible executable owner
+      ansible.builtin.stat:
+        path: "{{ ansible_binary_path_cmd.stdout | trim }}"
+        follow: true
+      register: ansible_binary_stat
+      when: update_ansible_enabled
+
+    - name: Resolve ansible and pipx locations
+      ansible.builtin.set_fact:
+        ansible_binary_path: "{{ ansible_binary_path_cmd.stdout | trim }}"
+        ansible_binary_owner: "{{ ansible_binary_stat.stat.pw_name }}"
+        ansible_pipx_executable: "{{ ((ansible_binary_path_cmd.stdout | trim) | dirname) ~ '/pipx' }}"
+      when: update_ansible_enabled
+
+    - name: Fail when pipx executable next to ansible is missing
+      ansible.builtin.stat:
+        path: "{{ ansible_pipx_executable }}"
+      register: ansible_pipx_stat
+      when: update_ansible_enabled
+
+    - name: Require detected pipx executable
+      ansible.builtin.assert:
+        that:
+          - ansible_pipx_stat.stat.exists
+        fail_msg: "Could not find pipx next to ansible at {{ ansible_pipx_executable }}."
       when: update_ansible_enabled
 
     - name: Upgrade Ansible installed with pipx
       ansible.builtin.command:
         argv:
-          - "{{ ansible_pipx_stat.stdout | trim }}"
+          - "{{ ansible_pipx_executable }}"
           - upgrade
           - "{{ ansible_pipx_package }}"
+      become: true
+      become_user: "{{ ansible_binary_owner }}"
       register: ansible_pipx_upgrade
       changed_when: >-
         'upgraded package' in (ansible_pipx_upgrade.stdout | lower) or
@@ -236,6 +319,8 @@
       ansible.builtin.debug:
         msg:
           - "Execution user: {{ execution_user }}"
+          - "Detected ansible owner: {{ ansible_binary_owner if update_ansible_enabled else 'skipped' }}"
+          - "Detected Semaphore config: {{ semaphore_config_path if update_semaphore_enabled else 'skipped' }}"
           - >-
             Ansible update: {{
               (ansible_version_cmd.stdout_lines | default(['not requested']))[0]

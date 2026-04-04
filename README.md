@@ -175,11 +175,13 @@ This update playbook matches the Debian 13 setup described here:
 - Local execution uses the actual Semaphore process user, not `ansible_user` from inventory
 - If that user is not `root`, it must have passwordless `sudo`
 - Detection of user/version still runs in check mode (`dry-run`)
+- Detected Ansible user/path are derived from the installed `ansible` binary in `PATH`
+- Detected Semaphore config path is derived from `systemctl show semaphore`
 - UI health check verifies that port `3000` comes back after restart
 - Backup is taken before update of:
-  - `/home/ans/config.json`
-  - `/var/lib/semaphore/semaphore.db`
-  - `/etc/systemd/system/semaphore.service`
+  - the active Semaphore config file from systemd
+  - the configured Semaphore database path (or `/var/lib/semaphore/semaphore.db` fallback)
+  - the active `semaphore.service` unit file
 - Installed Semaphore version is compared to the latest GitHub release automatically
 
 ## Runtime behavior for `ip_mode`
