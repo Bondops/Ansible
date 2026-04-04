@@ -1,0 +1,12 @@
+---
+update_ansible: true
+update_semaphore: true
+
+# Adjust if pipx was installed for another user than root.
+ansible_pipx_user: root
+
+# Paste the exact Semaphore .deb release you want to install.
+semaphore_deb_url: "https://github.com/semaphoreui/semaphore/releases/download/vX.Y.Z/semaphore_X.Y.Z_linux_amd64.deb"
+
+semaphore_service_name: semaphore
+semaphore_ui_port: 3000

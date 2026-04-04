@@ -158,6 +158,23 @@ sed -i 's/\r$//' your-script.sh
   - use `semaphore/create-vm-vars.example.yml`
   - for `root_password`, use a Survey variable of type `Secret` (or pass in Secrets)
 
+6. Optional update template for Semaphore server itself:
+- Add host/group `semaphore_ui` from `inventories/semaphore/hosts.yml`
+- Playbook: `playbooks/update_semaphore_server.yml`
+- Extra Variables default template:
+  - use `semaphore/update-semaphore-vars.example.yml`
+- Runtime fields:
+  - `update_ansible` (`true`/`false`)
+  - `update_semaphore` (`true`/`false`)
+  - `ansible_pipx_user` (default `root`)
+  - `semaphore_deb_url` (exact `.deb` release URL to install)
+
+This update playbook matches the Debian 13 setup described here:
+- Ansible installed with `pipx`
+- Semaphore installed from `.deb`
+- Semaphore managed by `systemd`
+- UI health check verifies that port `3000` comes back after restart
+
 ## Runtime behavior for `ip_mode`
 
 - `dhcp`:

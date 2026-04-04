@@ -1,0 +1,139 @@
+---
+- name: Update Semaphore server components
+  hosts: semaphore_ui
+  gather_facts: true
+  become: true
+  vars:
+    update_ansible: true
+    update_semaphore: true
+    ansible_pipx_user: root
+    ansible_pipx_package: ansible
+    ansible_pipx_executable: >-
+      {{ '/root/.local/bin/pipx'
+         if ansible_pipx_user == 'root'
+         else '/home/' ~ ansible_pipx_user ~ '/.local/bin/pipx' }}
+    ansible_binary_path: >-
+      {{ '/root/.local/bin/ansible'
+         if ansible_pipx_user == 'root'
+         else '/home/' ~ ansible_pipx_user ~ '/.local/bin/ansible' }}
+    semaphore_deb_url: ""
+    semaphore_deb_tmp_path: /tmp/semaphore_update.deb
+    semaphore_service_name: semaphore
+    semaphore_binary_path: /usr/bin/semaphore
+    semaphore_ui_port: 3000
+
+  pre_tasks:
+    - name: Validate selected update actions
+      ansible.builtin.assert:
+        that:
+          - update_ansible or update_semaphore
+        fail_msg: "Enable at least one of update_ansible or update_semaphore."
+
+    - name: Validate Semaphore package URL when Semaphore update is enabled
+      ansible.builtin.assert:
+        that:
+          - semaphore_deb_url | trim | length > 0
+        fail_msg: "Set semaphore_deb_url to the .deb release you want to install."
+      when: update_semaphore
+
+  tasks:
+    - name: Ensure base packages required for updates are installed
+      ansible.builtin.apt:
+        name:
+          - ca-certificates
+          - pipx
+        state: present
+        update_cache: true
+
+    - name: Check pipx executable exists
+      ansible.builtin.stat:
+        path: "{{ ansible_pipx_executable }}"
+      register: ansible_pipx_stat
+      when: update_ansible
+
+    - name: Fail when pipx executable is missing
+      ansible.builtin.assert:
+        that:
+          - ansible_pipx_stat.stat.exists
+        fail_msg: >-
+          pipx executable was not found at {{ ansible_pipx_executable }}.
+          Adjust ansible_pipx_user or ansible_pipx_executable for your installation.
+      when: update_ansible
+
+    - name: Upgrade Ansible installed with pipx
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_pipx_executable }}"
+          - upgrade
+          - "{{ ansible_pipx_package }}"
+      become_user: "{{ ansible_pipx_user }}"
+      register: ansible_pipx_upgrade
+      changed_when: >-
+        'upgraded package' in (ansible_pipx_upgrade.stdout | lower) or
+        'upgrading shared libraries' in (ansible_pipx_upgrade.stdout | lower)
+      when: update_ansible
+
+    - name: Download requested Semaphore release package
+      ansible.builtin.get_url:
+        url: "{{ semaphore_deb_url }}"
+        dest: "{{ semaphore_deb_tmp_path }}"
+        mode: "0644"
+      when: update_semaphore
+
+    - name: Install requested Semaphore release package
+      ansible.builtin.apt:
+        deb: "{{ semaphore_deb_tmp_path }}"
+        state: present
+      register: semaphore_install
+      when: update_semaphore
+
+    - name: Restart Semaphore service after package install
+      ansible.builtin.systemd:
+        name: "{{ semaphore_service_name }}"
+        state: restarted
+        enabled: true
+      when: update_semaphore
+
+    - name: Wait for Semaphore UI port to accept connections
+      ansible.builtin.wait_for:
+        host: 127.0.0.1
+        port: "{{ semaphore_ui_port }}"
+        timeout: 60
+      when: update_semaphore
+
+    - name: Read installed Ansible version
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_binary_path }}"
+          - --version
+      register: ansible_version_cmd
+      changed_when: false
+      when: update_ansible
+
+    - name: Read installed Semaphore version
+      ansible.builtin.command:
+        argv:
+          - "{{ semaphore_binary_path }}"
+          - version
+      register: semaphore_version_cmd
+      changed_when: false
+      when: update_semaphore
+
+    - name: Output update summary
+      ansible.builtin.debug:
+        msg:
+          - >-
+            Ansible update: {{
+              (ansible_version_cmd.stdout_lines | default(['not requested']))[0]
+              if update_ansible else 'skipped'
+            }}
+          - >-
+            Semaphore update: {{
+              (semaphore_version_cmd.stdout_lines | default(['not requested']))[0]
+              if update_semaphore else 'skipped'
+            }}
+          - >-
+            Semaphore UI check: {{
+              'port ' ~ (semaphore_ui_port | string) ~ ' reachable'
+              if update_semaphore else 'skipped'
+            }}
