@@ -2,7 +2,6 @@
 - name: Update Semaphore server components
   hosts: localhost
   gather_facts: true
-  become: true
   vars:
     update_ansible: true
     update_semaphore: true
@@ -22,6 +21,14 @@
         that:
           - update_ansible or update_semaphore
         fail_msg: "Enable at least one of update_ansible or update_semaphore."
+
+    - name: Require direct root execution on localhost
+      ansible.builtin.assert:
+        that:
+          - ansible_user_id == 'root'
+        fail_msg: >-
+          This update playbook must run directly as root on the Semaphore server.
+          The current execution user is {{ ansible_user_id }}.
 
     - name: Read installed Semaphore version before update
       ansible.builtin.command:

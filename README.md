@@ -172,6 +172,7 @@ This update playbook matches the Debian 13 setup described here:
 - Semaphore installed from `.deb`
 - Semaphore managed by `systemd`
 - Playbook runs on `localhost` with the existing local connection in inventory
+- Playbook expects the Semaphore task to execute directly as `root`
 - UI health check verifies that port `3000` comes back after restart
 - Backup is taken before update of:
   - `/home/ans/config.json`
