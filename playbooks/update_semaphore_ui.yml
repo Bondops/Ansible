@@ -164,6 +164,15 @@
           - semaphore_target_version | default('', true) | length > 0
         fail_msg: "Could not detect latest Semaphore linux_amd64.deb release from GitHub."
 
+    - name: Determine whether Semaphore update is needed
+      ansible.builtin.set_fact:
+        semaphore_update_needed: >-
+          {{
+            (semaphore_installed_version | default('', true) | trim)
+            !=
+            (semaphore_target_version | default('', true) | trim)
+          }}
+
     - name: Ensure Semaphore backup directory exists
       ansible.builtin.command:
         argv:
@@ -175,7 +184,9 @@
           - "0755"
           - "{{ semaphore_backup_dir }}"
       changed_when: true
-      check_mode: false
+      when:
+        - not ansible_check_mode
+        - semaphore_update_needed
 
     - name: Check Semaphore files for backup
       ansible.builtin.stat:
@@ -197,16 +208,27 @@
           - "{{ semaphore_backup_dir }}/{{ item.stat.path | basename }}.{{ lookup('pipe', 'date +%Y%m%dT%H%M%S') }}.bak"
       loop: "{{ semaphore_backup_stats.results }}"
       changed_when: true
-      check_mode: false
-      when: item.stat.exists
+      when:
+        - not ansible_check_mode
+        - semaphore_update_needed
+        - item.stat.exists
 
     - name: Inform when requested Semaphore version is already installed
       ansible.builtin.debug:
         msg: "Semaphore {{ semaphore_installed_version }} is already installed. Package install will be skipped."
       when:
-        - semaphore_installed_version | length > 0
-        - semaphore_target_version | length > 0
-        - semaphore_installed_version == semaphore_target_version
+        - not semaphore_update_needed
+
+    - name: Inform what would happen in check mode
+      ansible.builtin.debug:
+        msg:
+          - "Check mode: no package changes will be applied."
+          - "Installed Semaphore version: {{ semaphore_installed_version }}"
+          - "Target Semaphore version: {{ semaphore_target_version }}"
+          - "Target package URL: {{ semaphore_target_deb_url }}"
+      when:
+        - ansible_check_mode
+        - semaphore_update_needed
 
   tasks:
     - name: Ensure base packages required for Semaphore update are installed
@@ -217,8 +239,9 @@
           - apt-get
           - update
       changed_when: true
-      check_mode: false
-      when: (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
+      when:
+        - not ansible_check_mode
+        - semaphore_update_needed
 
     - name: Ensure ca-certificates package is installed
       ansible.builtin.command:
@@ -230,7 +253,9 @@
           - -y
           - ca-certificates
       changed_when: true
-      check_mode: false
+      when:
+        - not ansible_check_mode
+        - semaphore_update_needed
 
     - name: Download requested Semaphore release package
       ansible.builtin.command:
@@ -242,8 +267,9 @@
           - "{{ semaphore_deb_tmp_path }}"
           - "{{ semaphore_target_deb_url }}"
       changed_when: true
-      check_mode: false
-      when: (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
+      when:
+        - not ansible_check_mode
+        - semaphore_update_needed
 
     - name: Install requested Semaphore release package
       ansible.builtin.command:
@@ -256,8 +282,9 @@
           - "{{ semaphore_deb_tmp_path }}"
       register: semaphore_install
       changed_when: true
-      check_mode: false
-      when: (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
+      when:
+        - not ansible_check_mode
+        - semaphore_update_needed
 
     - name: Restart Semaphore service after package install
       ansible.builtin.command:
@@ -268,15 +295,18 @@
           - restart
           - semaphore
       changed_when: true
-      check_mode: false
-      when: (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
+      when:
+        - not ansible_check_mode
+        - semaphore_update_needed
 
     - name: Wait for Semaphore UI port to accept connections
       ansible.builtin.wait_for:
         host: 127.0.0.1
         port: "{{ semaphore_ui_port }}"
         timeout: 60
-      check_mode: false
+      when:
+        - not ansible_check_mode
+        - semaphore_update_needed
 
     - name: Read installed Semaphore version
       ansible.builtin.command:
@@ -295,4 +325,5 @@
           - "{{ (semaphore_version_cmd.stdout_lines | default(['Semaphore version unknown']))[0] }}"
           - "Semaphore target version: {{ semaphore_target_version }}"
           - "Semaphore backups: {{ semaphore_backup_dir }}"
+          - "Semaphore update needed: {{ semaphore_update_needed }}"
           - "Check mode: {{ ansible_check_mode }}"
