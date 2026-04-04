@@ -132,6 +132,7 @@
         state: directory
         mode: "0755"
       become: true
+      check_mode: false
 
     - name: Check Semaphore files for backup
       ansible.builtin.stat:
