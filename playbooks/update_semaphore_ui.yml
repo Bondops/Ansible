@@ -111,6 +111,17 @@
 
     - name: Resolve target Semaphore release asset
       ansible.builtin.set_fact:
+        semaphore_target_asset_name: >-
+          {{
+            (
+              semaphore_release_api_response.json.assets
+              | default([])
+              | selectattr('name', 'search', 'linux_amd64\\.deb$')
+              | map(attribute='name')
+              | list
+              | first
+            ) | default('', true)
+          }}
         semaphore_target_asset_url: >-
           {{
             (
@@ -133,9 +144,8 @@
         semaphore_target_version: >-
           {{
             (
-              semaphore_target_asset_url
-              | regex_search('semaphore_([0-9]+\\.[0-9]+\\.[0-9]+)_linux_amd64\\.deb', '\\1')
-              | first
+              semaphore_target_asset_name
+              | regex_search('[0-9]+\\.[0-9]+\\.[0-9]+')
             )
             | default('', true)
           }}
