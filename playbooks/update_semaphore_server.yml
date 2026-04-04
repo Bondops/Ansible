@@ -16,10 +16,15 @@
     semaphore_release_api_url: https://api.github.com/repos/semaphoreui/semaphore/releases/latest
 
   pre_tasks:
+    - name: Normalize update flags
+      ansible.builtin.set_fact:
+        update_ansible_enabled: "{{ update_ansible | bool }}"
+        update_semaphore_enabled: "{{ update_semaphore | bool }}"
+
     - name: Validate selected update actions
       ansible.builtin.assert:
         that:
-          - update_ansible or update_semaphore
+          - update_ansible_enabled or update_semaphore_enabled
         fail_msg: "Enable at least one of update_ansible or update_semaphore."
 
     - name: Require direct root execution on localhost
@@ -38,7 +43,7 @@
       register: semaphore_version_before_cmd
       changed_when: false
       failed_when: false
-      when: update_semaphore
+      when: update_semaphore_enabled
 
     - name: Read latest Semaphore release from GitHub
       ansible.builtin.uri:
@@ -49,7 +54,7 @@
           Accept: application/vnd.github+json
           X-GitHub-Api-Version: "2022-11-28"
       register: semaphore_release_api_response
-      when: update_semaphore
+      when: update_semaphore_enabled
 
     - name: Resolve installed and target Semaphore versions
       ansible.builtin.set_fact:
@@ -69,14 +74,14 @@
             ~ semaphore_target_version ~ '/semaphore_'
             ~ semaphore_target_version ~ '_linux_amd64.deb'
           }}
-      when: update_semaphore
+      when: update_semaphore_enabled
 
     - name: Ensure Semaphore backup directory exists
       ansible.builtin.file:
         path: "{{ semaphore_backup_dir }}"
         state: directory
         mode: "0750"
-      when: update_semaphore
+      when: update_semaphore_enabled
 
     - name: Check Semaphore files for backup
       ansible.builtin.stat:
@@ -86,7 +91,7 @@
         - "{{ semaphore_db_path }}"
         - "{{ semaphore_service_unit_path }}"
       register: semaphore_backup_stats
-      when: update_semaphore
+      when: update_semaphore_enabled
 
     - name: Backup Semaphore files before update
       ansible.builtin.copy:
@@ -96,14 +101,14 @@
         mode: preserve
       loop: "{{ semaphore_backup_stats.results }}"
       when:
-        - update_semaphore
+        - update_semaphore_enabled
         - item.stat.exists
 
     - name: Inform when requested Semaphore version is already installed
       ansible.builtin.debug:
         msg: "Semaphore {{ semaphore_installed_version }} is already installed. Package install will be skipped."
       when:
-        - update_semaphore
+        - update_semaphore_enabled
         - semaphore_installed_version | length > 0
         - semaphore_target_version | length > 0
         - semaphore_installed_version == semaphore_target_version
@@ -123,7 +128,7 @@
         executable: /bin/bash
       register: ansible_pipx_stat
       changed_when: false
-      when: update_ansible
+      when: update_ansible_enabled
 
     - name: Fail when pipx executable is missing
       ansible.builtin.assert:
@@ -132,7 +137,7 @@
           - ansible_pipx_stat.stdout | trim | length > 0
         fail_msg: >-
           pipx executable was not found in PATH on the Semaphore server.
-      when: update_ansible
+      when: update_ansible_enabled
 
     - name: Upgrade Ansible installed with pipx
       ansible.builtin.command:
@@ -144,7 +149,7 @@
       changed_when: >-
         'upgraded package' in (ansible_pipx_upgrade.stdout | lower) or
         'upgrading shared libraries' in (ansible_pipx_upgrade.stdout | lower)
-      when: update_ansible
+      when: update_ansible_enabled
 
     - name: Download requested Semaphore release package
       ansible.builtin.get_url:
@@ -152,7 +157,7 @@
         dest: "{{ semaphore_deb_tmp_path }}"
         mode: "0644"
       when:
-        - update_semaphore
+        - update_semaphore_enabled
         - (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
 
     - name: Install requested Semaphore release package
@@ -161,7 +166,7 @@
         state: present
       register: semaphore_install
       when:
-        - update_semaphore
+        - update_semaphore_enabled
         - (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
 
     - name: Restart Semaphore service after package install
@@ -170,7 +175,7 @@
         state: restarted
         enabled: true
       when:
-        - update_semaphore
+        - update_semaphore_enabled
         - (semaphore_installed_version | default('')) != (semaphore_target_version | default(''))
 
     - name: Wait for Semaphore UI port to accept connections
@@ -178,7 +183,7 @@
         host: 127.0.0.1
         port: "{{ semaphore_ui_port }}"
         timeout: 60
-      when: update_semaphore
+      when: update_semaphore_enabled
 
     - name: Read installed Ansible version
       ansible.builtin.shell: command -v ansible && ansible --version
@@ -186,7 +191,7 @@
         executable: /bin/bash
       register: ansible_version_cmd
       changed_when: false
-      when: update_ansible
+      when: update_ansible_enabled
 
     - name: Read installed Semaphore version
       ansible.builtin.command:
@@ -195,7 +200,7 @@
           - version
       register: semaphore_version_cmd
       changed_when: false
-      when: update_semaphore
+      when: update_semaphore_enabled
 
     - name: Output update summary
       ansible.builtin.debug:
@@ -203,23 +208,23 @@
           - >-
             Ansible update: {{
               (ansible_version_cmd.stdout_lines | default(['not requested']))[0]
-              if update_ansible else 'skipped'
+              if update_ansible_enabled else 'skipped'
             }}
           - >-
             Semaphore update: {{
               (semaphore_version_cmd.stdout_lines | default(['not requested']))[0]
-              if update_semaphore else 'skipped'
+              if update_semaphore_enabled else 'skipped'
             }}
           - >-
             Semaphore target version: {{
-              semaphore_target_version if update_semaphore else 'skipped'
+              semaphore_target_version if update_semaphore_enabled else 'skipped'
             }}
           - >-
             Semaphore UI check: {{
               'port ' ~ (semaphore_ui_port | string) ~ ' reachable'
-              if update_semaphore else 'skipped'
+              if update_semaphore_enabled else 'skipped'
             }}
           - >-
             Semaphore backups: {{
-              semaphore_backup_dir if update_semaphore else 'skipped'
+              semaphore_backup_dir if update_semaphore_enabled else 'skipped'
             }}
