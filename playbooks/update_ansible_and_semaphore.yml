@@ -1,0 +1,42 @@
+---
+- name: Update apt packages and instruct follow-up playbooks
+  hosts: localhost
+  gather_facts: false
+
+  pre_tasks:
+    - name: Detect effective execution user
+      ansible.builtin.command: id -un
+      register: execution_user_cmd
+      changed_when: false
+      check_mode: false
+
+    - name: Check passwordless sudo when not running as root
+      ansible.builtin.command: sudo -n true
+      register: sudo_check_cmd
+      changed_when: false
+      failed_when: false
+      check_mode: false
+      when: (execution_user_cmd.stdout | trim) != 'root'
+
+    - name: Require root or passwordless sudo on localhost
+      ansible.builtin.assert:
+        that:
+          - (execution_user_cmd.stdout | trim) == 'root' or sudo_check_cmd.rc == 0
+        fail_msg: >-
+          This playbook requires direct root or passwordless sudo.
+          Current execution user is {{ execution_user_cmd.stdout | trim }}.
+
+  tasks:
+    - name: Update apt package cache and upgrade installed packages
+      ansible.builtin.apt:
+        update_cache: true
+        upgrade: dist
+      become: true
+
+    - name: Output orchestration summary
+      ansible.builtin.debug:
+        msg:
+          - "Execution user: {{ execution_user_cmd.stdout | trim }}"
+          - "APT update completed."
+          - "Run playbooks/update_ansible_pipx.yml with the pipx owner template next."
+          - "Run playbooks/update_semaphore_ui.yml with the Semaphore/root-capable template after that."

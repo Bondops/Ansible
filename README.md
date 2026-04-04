@@ -158,31 +158,27 @@ sed -i 's/\r$//' your-script.sh
   - use `semaphore/create-vm-vars.example.yml`
   - for `root_password`, use a Survey variable of type `Secret` (or pass in Secrets)
 
-6. Optional update template for Semaphore server itself:
-- Playbook: `playbooks/update_semaphore_server.yml`
-- Extra Variables default template:
-  - use `semaphore/update-semaphore-vars.example.yml`
-- Runtime fields:
-  - `update_ansible` (`true`/`false`)
+6. Optional maintenance templates for the Semaphore server itself:
+- `playbooks/update_ansible_pipx.yml`
+  - run this from a Semaphore template that executes as the owner of the pipx-managed `ansible` installation
+  - autodetects `ansible` and `pipx` paths from `PATH`
+- `playbooks/update_semaphore_ui.yml`
+  - run this from a Semaphore template that executes as `root` or a user with passwordless `sudo`
+  - autodetects the active Semaphore config path from `systemctl show semaphore`
+  - backs up the active config file, configured database path, and active service unit
+  - compares installed Semaphore version to the latest GitHub release and installs the newer `.deb`
+- `playbooks/update_ansible_and_semaphore.yml`
+  - optional wrapper for `apt update` and `apt upgrade`
+  - should be run before the two playbooks above
+  - because Ansible and Semaphore may need different OS users, this playbook only handles apt and prints the intended next order:
+    1. `playbooks/update_ansible_pipx.yml`
+    2. `playbooks/update_semaphore_ui.yml`
+
+Example vars for the Semaphore UI update template:
+- use `semaphore/update-semaphore-vars.example.yml`
+- runtime fields:
   - `update_semaphore` (`true`/`false`)
   - `semaphore_ui_port` (default `3000`)
-
-This update playbook matches the Debian 13 setup described here:
-- Ansible installed with `pipx`
-- Semaphore installed from `.deb`
-- Semaphore managed by `systemd`
-- Playbook runs on `localhost` with the existing local connection in inventory
-- Local execution uses the actual Semaphore process user, not `ansible_user` from inventory
-- If that user is not `root`, it must have passwordless `sudo`
-- Detection of user/version still runs in check mode (`dry-run`)
-- Detected Ansible user/path are derived from the installed `ansible` binary in `PATH`
-- Detected Semaphore config path is derived from `systemctl show semaphore`
-- UI health check verifies that port `3000` comes back after restart
-- Backup is taken before update of:
-  - the active Semaphore config file from systemd
-  - the configured Semaphore database path (or `/var/lib/semaphore/semaphore.db` fallback)
-  - the active `semaphore.service` unit file
-- Installed Semaphore version is compared to the latest GitHub release automatically
 
 ## Runtime behavior for `ip_mode`
 

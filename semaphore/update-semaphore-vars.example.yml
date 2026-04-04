@@ -1,4 +1,3 @@
 ---
-update_ansible: true
 update_semaphore: true
 semaphore_ui_port: 3000

@@ -1,0 +1,88 @@
+---
+- name: Update Ansible installed with pipx
+  hosts: localhost
+  gather_facts: false
+  vars:
+    ansible_pipx_package: ansible
+
+  pre_tasks:
+    - name: Detect effective execution user
+      ansible.builtin.command: id -un
+      register: execution_user_cmd
+      changed_when: false
+      check_mode: false
+
+    - name: Detect ansible executable in PATH
+      ansible.builtin.shell: command -v ansible
+      args:
+        executable: /bin/bash
+      register: ansible_binary_path_cmd
+      changed_when: false
+      check_mode: false
+
+    - name: Require ansible executable in PATH
+      ansible.builtin.assert:
+        that:
+          - ansible_binary_path_cmd.rc == 0
+          - ansible_binary_path_cmd.stdout | trim | length > 0
+        fail_msg: "ansible executable was not found in PATH for the current user."
+
+    - name: Detect ansible executable owner
+      ansible.builtin.stat:
+        path: "{{ ansible_binary_path_cmd.stdout | trim }}"
+        follow: true
+      register: ansible_binary_stat
+
+    - name: Resolve ansible and pipx paths
+      ansible.builtin.set_fact:
+        execution_user: "{{ execution_user_cmd.stdout | trim }}"
+        ansible_binary_path: "{{ ansible_binary_path_cmd.stdout | trim }}"
+        ansible_binary_owner: "{{ ansible_binary_stat.stat.pw_name }}"
+        ansible_pipx_executable: "{{ ((ansible_binary_path_cmd.stdout | trim) | dirname) ~ '/pipx' }}"
+
+    - name: Require matching owner for pipx-managed ansible update
+      ansible.builtin.assert:
+        that:
+          - execution_user == ansible_binary_owner
+        fail_msg: >-
+          This playbook must run as the owner of the pipx-managed ansible installation.
+          Execution user is {{ execution_user }}, ansible owner is {{ ansible_binary_owner }}.
+
+    - name: Require detected pipx executable
+      ansible.builtin.stat:
+        path: "{{ ansible_pipx_executable }}"
+      register: ansible_pipx_stat
+
+    - name: Fail when pipx executable next to ansible is missing
+      ansible.builtin.assert:
+        that:
+          - ansible_pipx_stat.stat.exists
+        fail_msg: "Could not find pipx next to ansible at {{ ansible_pipx_executable }}."
+
+  tasks:
+    - name: Upgrade Ansible installed with pipx
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_pipx_executable }}"
+          - upgrade
+          - "{{ ansible_pipx_package }}"
+      register: ansible_pipx_upgrade
+      changed_when: >-
+        'upgraded package' in (ansible_pipx_upgrade.stdout | lower) or
+        'upgrading shared libraries' in (ansible_pipx_upgrade.stdout | lower)
+
+    - name: Read installed Ansible version
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_binary_path }}"
+          - --version
+      register: ansible_version_cmd
+      changed_when: false
+      check_mode: false
+
+    - name: Output Ansible update summary
+      ansible.builtin.debug:
+        msg:
+          - "Execution user: {{ execution_user }}"
+          - "Detected ansible owner: {{ ansible_binary_owner }}"
+          - "{{ (ansible_version_cmd.stdout_lines | default(['ansible version unknown']))[0] }}"
