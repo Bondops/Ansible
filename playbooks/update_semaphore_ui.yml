@@ -109,12 +109,12 @@
         semaphore_installed_version: >-
           {{
             (semaphore_version_before_cmd.stdout | default('') | regex_search('[0-9]+\\.[0-9]+\\.[0-9]+'))
-            | default('')
+            | default('', true)
           }}
         semaphore_target_version: >-
           {{
             (semaphore_release_api_response.json.tag_name | default('') | regex_search('[0-9]+\\.[0-9]+\\.[0-9]+'))
-            | default('')
+            | default('', true)
           }}
 
     - name: Resolve target Semaphore package URL
@@ -152,6 +152,7 @@
       become: true
       loop: "{{ semaphore_backup_stats.results }}"
       changed_when: true
+      check_mode: false
       when: item.stat.exists
 
     - name: Inform when requested Semaphore version is already installed
