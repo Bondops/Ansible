@@ -130,7 +130,7 @@
       ansible.builtin.file:
         path: "{{ semaphore_backup_dir }}"
         state: directory
-        mode: "0750"
+        mode: "0755"
       become: true
 
     - name: Check Semaphore files for backup
