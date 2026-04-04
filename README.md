@@ -167,13 +167,18 @@ sed -i 's/\r$//' your-script.sh
   - `update_ansible` (`true`/`false`)
   - `update_semaphore` (`true`/`false`)
   - `ansible_pipx_user` (default `root`)
-  - `semaphore_deb_url` (exact `.deb` release URL to install)
+  - `semaphore_release_version` (preferred; e.g. `2.16.99`)
+  - `semaphore_deb_url` (optional exact `.deb` release URL override)
 
 This update playbook matches the Debian 13 setup described here:
 - Ansible installed with `pipx`
 - Semaphore installed from `.deb`
 - Semaphore managed by `systemd`
 - UI health check verifies that port `3000` comes back after restart
+- Backup is taken before update of:
+  - `/home/ans/config.json`
+  - `/var/lib/semaphore/semaphore.db`
+  - `/etc/systemd/system/semaphore.service`
 
 ## Runtime behavior for `ip_mode`
 
