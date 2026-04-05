@@ -54,6 +54,14 @@
       check_mode: false
       when: execution_user != ansible_binary_owner
 
+    - name: Debug sudo access to ansible owner when needed
+      ansible.builtin.debug:
+        msg:
+          - "sudo rc: {{ ansible_owner_sudo_check.rc | default('unset') }}"
+          - "sudo stdout: {{ ansible_owner_sudo_check.stdout | default('') }}"
+          - "sudo stderr: {{ ansible_owner_sudo_check.stderr | default('') }}"
+      when: execution_user != ansible_binary_owner
+
     - name: Require direct owner execution or passwordless sudo to ansible owner
       ansible.builtin.assert:
         that:
