@@ -1,9 +1,9 @@
 ---
-- name: Update Ansible installed with pipx
+- name: Update Ansible installed in Python venv
   hosts: localhost
   gather_facts: false
   vars:
-    ansible_pipx_package: ansible
+    ansible_python_package: ansible
 
   pre_tasks:
     - name: Detect effective execution user
@@ -33,12 +33,14 @@
         follow: true
       register: ansible_binary_stat
 
-    - name: Resolve ansible and pipx paths
+    - name: Resolve ansible, pip, and venv paths
       ansible.builtin.set_fact:
         execution_user: "{{ execution_user_cmd.stdout | trim }}"
         ansible_binary_path: "{{ ansible_binary_path_cmd.stdout | trim }}"
         ansible_binary_owner: "{{ ansible_binary_stat.stat.pw_name }}"
-        ansible_pipx_executable: "{{ ((ansible_binary_path_cmd.stdout | trim) | dirname) ~ '/pipx' }}"
+        ansible_bin_dir: "{{ (ansible_binary_path_cmd.stdout | trim) | dirname }}"
+        ansible_pip_executable: "{{ ((ansible_binary_path_cmd.stdout | trim) | dirname) ~ '/pip' }}"
+        ansible_venv_path: "{{ (((ansible_binary_path_cmd.stdout | trim) | dirname) | dirname) }}"
 
     - name: Check passwordless sudo access to ansible owner when needed
       ansible.builtin.command:
@@ -67,36 +69,53 @@
         that:
           - execution_user == ansible_binary_owner or ansible_owner_sudo_check.rc == 0
         fail_msg: >-
-          This playbook must run as the owner of the pipx-managed ansible installation,
+          This playbook must run as the owner of the ansible virtual environment,
           or have passwordless sudo to that user.
           Execution user is {{ execution_user }}, ansible owner is {{ ansible_binary_owner }}.
 
-    - name: Require detected pipx executable
+    - name: Require detected pip executable
       ansible.builtin.stat:
-        path: "{{ ansible_pipx_executable }}"
-      register: ansible_pipx_stat
+        path: "{{ ansible_pip_executable }}"
+      register: ansible_pip_stat
 
-    - name: Fail when pipx executable next to ansible is missing
+    - name: Fail when pip executable next to ansible is missing
       ansible.builtin.assert:
         that:
-          - ansible_pipx_stat.stat.exists
-        fail_msg: "Could not find pipx next to ansible at {{ ansible_pipx_executable }}."
+          - ansible_pip_stat.stat.exists
+        fail_msg: "Could not find pip next to ansible at {{ ansible_pip_executable }}."
 
   tasks:
-    - name: Upgrade Ansible installed with pipx
+    - name: Upgrade pip in Ansible venv
       ansible.builtin.command:
         argv:
           - sudo
           - -n
           - -u
           - "{{ ansible_binary_owner }}"
-          - "{{ ansible_pipx_executable }}"
-          - upgrade
-          - "{{ ansible_pipx_package }}"
-      register: ansible_pipx_upgrade
+          - "{{ ansible_pip_executable }}"
+          - install
+          - -U
+          - pip
+      register: ansible_pip_upgrade
       changed_when: >-
-        'upgraded package' in (ansible_pipx_upgrade.stdout | lower) or
-        'upgrading shared libraries' in (ansible_pipx_upgrade.stdout | lower)
+        'successfully installed' in (ansible_pip_upgrade.stdout | lower) or
+        'uninstalling ' in (ansible_pip_upgrade.stdout | lower)
+
+    - name: Upgrade Ansible in venv
+      ansible.builtin.command:
+        argv:
+          - sudo
+          - -n
+          - -u
+          - "{{ ansible_binary_owner }}"
+          - "{{ ansible_pip_executable }}"
+          - install
+          - -U
+          - "{{ ansible_python_package }}"
+      register: ansible_package_upgrade
+      changed_when: >-
+        'successfully installed' in (ansible_package_upgrade.stdout | lower) or
+        'uninstalling ' in (ansible_package_upgrade.stdout | lower)
 
     - name: Read installed Ansible version
       ansible.builtin.command:
@@ -116,4 +135,5 @@
         msg:
           - "Execution user: {{ execution_user }}"
           - "Detected ansible owner: {{ ansible_binary_owner }}"
+          - "Detected ansible venv: {{ ansible_venv_path }}"
           - "{{ (ansible_version_cmd.stdout_lines | default(['ansible version unknown']))[0] }}"

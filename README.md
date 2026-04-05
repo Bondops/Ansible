@@ -160,8 +160,8 @@ sed -i 's/\r$//' your-script.sh
 
 6. Optional maintenance templates for the Semaphore server itself:
 - `playbooks/update_ansible_pipx.yml`
-  - run this from a Semaphore template that executes as the owner of the pipx-managed `ansible` installation
-  - autodetects `ansible` and `pipx` paths from `PATH`
+  - run this from a Semaphore template on the Semaphore host
+  - autodetects the active `ansible` binary and updates the matching Python venv installation
 - `playbooks/update_semaphore_ui.yml`
   - run this from a Semaphore template that executes as `root` or a user with passwordless `sudo`
   - autodetects the active Semaphore config path from `systemctl show semaphore`

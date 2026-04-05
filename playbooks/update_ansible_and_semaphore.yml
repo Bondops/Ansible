@@ -38,5 +38,5 @@
         msg:
           - "Execution user: {{ execution_user_cmd.stdout | trim }}"
           - "APT update completed."
-          - "Run playbooks/update_ansible_pipx.yml with the pipx owner template next."
+          - "Run playbooks/update_ansible_pipx.yml with the Ansible update template next."
           - "Run playbooks/update_semaphore_ui.yml with the Semaphore/root-capable template after that."
