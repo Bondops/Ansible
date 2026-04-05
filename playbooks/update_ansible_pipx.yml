@@ -47,7 +47,7 @@
           - -n
           - -u
           - "{{ ansible_binary_owner }}"
-          - true
+          - "true"
       register: ansible_owner_sudo_check
       changed_when: false
       failed_when: false
