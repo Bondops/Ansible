@@ -159,7 +159,7 @@ sed -i 's/\r$//' your-script.sh
   - for `root_password`, use a Survey variable of type `Secret` (or pass in Secrets)
 
 6. Optional maintenance templates for the Semaphore server itself:
-- `playbooks/update_ansible_pipx.yml`
+- `playbooks/update_ansible_pip.yml`
   - run this from a Semaphore template on the Semaphore host
   - autodetects the active `ansible` binary and updates the matching Python venv installation
 - `playbooks/update_semaphore_ui.yml`
@@ -171,7 +171,7 @@ sed -i 's/\r$//' your-script.sh
   - optional wrapper for `apt update` and `apt upgrade`
   - should be run before the two playbooks above
   - because Ansible and Semaphore may need different OS users, this playbook only handles apt and prints the intended next order:
-    1. `playbooks/update_ansible_pipx.yml`
+    1. `playbooks/update_ansible_pip.yml`
     2. `playbooks/update_semaphore_ui.yml`
 
 Example vars for the Semaphore UI update template:
